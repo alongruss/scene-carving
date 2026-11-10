@@ -43,11 +43,22 @@ Analysis reads the film once and produces the **score map**: time-aligned layers
 | **Structure** | shots and transitions, scenes, words, lines, speakers, fillers, pauses and gaps, music beats, downbeats and sections | shot-boundary and scene segmentation, VAD, ASR with word alignment, diarization, verbatim filler ASR, beat and downbeat tracking on a stem *separated for analysis only* |
 | **Noticeability: visual** | join discontinuity (temporal forward energy, frame distance D(i,j)), subject motion vs. camera motion, predicted attention, event boundaries | frame and flow differences, motion classification, saliency |
 | **Noticeability: audio** | join discontinuity in the mix: inside a word, inside a musical phrase, off-beat, mismatched room-tone statistics | alignment boundaries, downbeats, texture statistics |
-| **Importance: plot** | plot relevance per span, turning points, interleaved side beats | local VLM captions plus transcript, scored by a local LLM |
+| **Importance: plot** | plot relevance per span, turning points, interleaved side beats | local VLM captions plus transcript, scored by a local LLM; **optional subtitle file and screenplay** (see below) |
 | **Importance: mood** | mood curve (arousal and valence), music emotion | affect models on audio and picture |
 | **Importance: duration as intent** | how unusually long a hold or pause is *for this film* | the film's own distributions |
 | **Constraints** | sync-critical spans (on-screen speech, visible sound events), human marks | active speaker detection, event detection |
 | **Rhythm reference** | shot-length sequence, ASL, 1/f slope, act proportions, pause classes and rank order | the film's own statistics |
+
+**Optional text inputs for the plot layer** (decision #61). Each improves plot scoring when available; analysis falls back to ASR plus vision without them.
+- **Subtitle file** (SRT/VTT).
+  - Authoritative dialogue text and timing, better than ASR. ASR word timing still places the cuts.
+  - **CC/SDH** subtitles add speaker names (who speaks, and to whom) and sound-event cues ("[door slams]", "[music swells]"), which mark plot-relevant sounds the dialogue never mentions.
+- **Screenplay** (found online).
+  - Scene headings give scene structure.
+  - Character cues and dialogue give speakers and importance in context.
+  - **Action lines** describe visual beats. This is the visual plot signal the prototype lacks.
+  - The script is aligned to the film by matching its dialogue to the subtitle or ASR text in order (DTW over word sequences). Action lines then inherit the time spans between their aligned dialogue.
+  - Shooting scripts may differ from the final cut. Lines that don't align are ignored, never trusted.
 
 ### 3.2 Seams
 
