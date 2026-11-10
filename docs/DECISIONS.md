@@ -61,6 +61,40 @@
 | 46 | Keep slightly faster off-screen speech? (re-asked in plain language) | Drop it · Keep it | **Drop it.** Speech always plays at normal speed. |
 | 47 | Cut the mixed soundtrack as-is, or split it into layers? (re-asked in plain language) | Cut the mix as-is · Split and cut layers | **Cut the mix as-is.** Stem separation is used only during analysis. |
 
+## Prototype feedback: after watching the carve-only prototype (iteration 1)
+
+The user watched 90%, 75% and 60% carvings of *Tears of Steel*, made by the throwaway prototype on branch `prototype/carve-only`.
+
+| # | Observation or question | Answer / decision |
+|---|---|---|
+| 48 | End credits survived in the 90% version | "the whole credit section is throwing us off as it is not relevant to story and could be cut completely. note that credits like this are low energy to plot." Titles and credits score near-zero story importance and go first. |
+| 49 | Same-camera cuts inside a shot | "any hard cut video that happens in the middle of the same scene with the same camera and also in a conversation is very noticeable. we should score in a way the prefers trimming scene start or end above jump cutting in the middle." |
+| 50 | Scoring inputs | "we might also want to help score using motion vectors?" This means using motion, split into camera vs. subject motion, in the noticeability of a join. |
+| 51 | Visual healing for unavoidable same-camera cuts (options: Short cross-dissolve · Motion-interpolated morph · Dissolve live, morph in render · No healing, just avoid) | **Short cross-dissolve**: about 6 frames blending original frames, the picture equivalent of the audio crossfade. ⟲ This amends #33: blending is allowed, but generating or interpolating pixels is still not. |
+
+## Prototype feedback: after watching iteration 2
+
+| # | Observation or question | Answer / decision |
+|---|---|---|
+| 52 | Seam handling | "we might want to tag seams with a removal/patch strategy". Every seam carries a **heal strategy** for its join: `trim-at-cut`, `dissolve`, `hard` (a mid-shot jump between near-identical frames) or `edge-trim`. `patch` is reserved. |
+| 53 | Abrupt cuts after lines | "some cuts are a bit too abrupt like right when speech ends without "breathing room"". **Breathing room** after sound or speech ends, and a shorter breath before it starts, is protected. Its length is learned from the film's pause statistics (consistent with #35). |
+| 54 | Healing quality | "crossfades are better then the rough jump we had earlier, we might improve even more in the future with better synthesis". Better healing is a future direction. The question "is PatchMatch a relevant analogue?" was researched: [research/patching-from-other-times.md](research/patching-from-other-times.md). |
+| 55 | Review lengths | "always create a 30% version". The standard review renders are **90 / 75 / 60 / 30%**. |
+
+## Prototype feedback: after watching the 30% render (iteration 3)
+
+| # | Observation or question | Answer / decision |
+|---|---|---|
+| 56 | Words cut before a man walking | "why would you rather cut important words from sentences than cut a man walking … we need to plot score and conversation score to better protect informative scenes … let's better protect information." **Information comes first.** Speech is protected by a conversation score: cutting into a word is very expensive, whole sentences are seams priced by a plot score, and breathing room follows sentence ends. **Motion is not information**; it only makes joins more visible. |
+| 57 | Local speech recognition | Approved download of faster-whisper with the `small.en` model (486 MB), running locally on CPU. |
+| 58 | Healing method | "you can also do the bake-off". A blind bake-off of hard / dissolve / `patch` (graph-cut switch map) / best-pair snap was built over 11 story mid-shot joins. The result is in #59. |
+| 59 | Bake-off result (the user's blind picks) | Worst picks: patch6 5, hard 2, patch12 1, snap+patch6 1, dissolve6 1, snap+dissolve6 0. The only best pick was hard, once. **Graph-cut `patch` was rejected**: a patch variant was worst in 7 of 10. `dissolve` stays the heal. Snap is not adopted (thin evidence, and it can shift a cut into words). Better synthesis stays a future direction. |
+| 60 | "so what is the current strategy about cutting words that are not plot important?" (options: Fillers and repeats only · Any low-plot word · Whole sentences only) | **Fillers and repeats only.** Fillers (um/uh/hmm, "you know" set off by punctuation) and stutter repeats (a repeated token or a "word..." false start) are cheap seams. They are cut **whole or not at all**. Real words inside a kept sentence are never cut. Verbatim ASR keeps the fillers. |
+| 61 | Inputs for plot scoring | "sometimes we know the whole script because we can find it online. sometimes we have the subtitle file (which may even be cc). we could also use these 2 when scoring by plot." **Optional plot inputs**, both aligned to the film through the dialogue: **subtitles** (SRT/VTT, including CC/SDH) and a **screenplay**. Without them, analysis falls back to ASR plus vision. Details in DEFINITION §3.1. |
+| 62 | Subtitle timing | "30 was wonderful. because subtitle timing is coarse and might also differ in timing with some release versions, we need to anchor subtitles with whisper across the video so that we have accurate info about timings. the more info we have the better our scoring and therefore carving ability is." Subtitles are **aligned to the audio**: a framerate-ratio and piecewise-offset transform, then per-line ASR / prompted-Whisper / VAD timing with confidence. Validated against offset, PAL and inserted-scene distortions. |
+| 63 | Second test film (options: Under the Skin · The Conversation · Public-domain film · Alps) | **A public-domain film**, so results can be shared. |
+| 64 | "can we also lengthen movie like liquid rescale can enlarge images?" | Recorded as a **future direction** (DEFINITION §12): insert time at the least-noticeable, meaning-neutral places (pauses, static holds), with no speed change. The audio for it (repeating room tone or silence) conflicts with #41 and needs a decision before building. |
+
 ## Resolved tensions
 
 - **"Keep the plot untouched" (#40) vs. "just go" (#7) and "slider can go all the way" (#45).** There is no plot floor. Plot is protected *by ordering*: plot-bearing seams carry the highest importance and are removed last. The timeline shows exactly when plot starts to be lost.
@@ -73,7 +107,7 @@
 
 | Item | Why |
 |---|---|
-| Any synthesis: frame interpolation, morph cuts, generated or looped ambience, inpainting | #33, #41: carve only |
+| Any synthesis: frame interpolation, morph cuts, generated or looped ambience, inpainting | #33, #41: carve only. Blending original material at joins is allowed: audio crossfades (#43) and short picture dissolves (#51). |
 | Audio time-scale modification, including off-screen speech speed-up | #41, #46 |
 | Separating stems and remixing them in the output | #47 (separation is for analysis only) |
 | Speeding up subject motion | #13: no physics distortion |

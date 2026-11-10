@@ -15,7 +15,12 @@ Project vocabulary comes first. Borrowed academic and industry terms follow, eac
 | **Decoupled cut** | A paired audio seam and picture seam of **equal duration** at different positions. It is valid only if nothing **sync-critical** lies between them. This is the automatic form of a J/L-cut. | "Split edit" in editing jargon. |
 | **Join** | The new adjacency created where a seam was removed. Its perceptual cost is the seam's **noticeability**. | — |
 | **Cut (original)** | A shot boundary that already exists in the source film. | Don't call our removals "cuts" in docs. Use seam or join. |
-| **Crossfade** | A short, cheap fade across an audio join that blends only original audio. It must stay cheap enough for near-real-time preview. | Not synthesis. |
+| **Crossfade / dissolve** | A short, cheap blend across a join, using only original material. Audio gets a crossfade of about 10 ms. Unavoidable same-camera picture joins get a cross-dissolve of about 6 frames. It must stay cheap enough for near-real-time preview. | Not synthesis. Not a morph cut. |
+| **Mid-shot join** | A join inside a single same-camera shot. It is costly (a jump cut), and costlier with moving subjects or in conversation. The opposite is a trim at an existing cut. | — |
+| **Heal strategy** | The tag saying how a seam's join is healed: `trim-at-cut`, `dissolve`, `hard` or `edge-trim`. (`patch`, a per-pixel switch-time graph cut, was rejected after a blind bake-off.) | — |
+| **Filler unit** | One or more adjacent fillers or stutter repeats ("um", "you know", "Be... be"). It is cut whole or not at all; the only speech that may be cut from inside a kept sentence. | — |
+| **Breathing room** | Protected frames right after speech or sound ends, and before it starts. The length is learned from the film. | — |
+| **Story weight** | A per-frame multiplier from the plot layer. Titles and credits are near 0. | — |
 | **Score map** | The output of analysis: time-aligned, self-calibrated **layers** covering the whole film. | — |
 | **Layer** | One time series in the score map, e.g. plot, mood, visual noticeability, audio noticeability, sync-critical, duration-as-intent, or the rhythm reference. | — |
 | **Noticeability** | The perceptual cost of a seam's removal, evaluated at the join (temporal **forward energy**). It has visual and audio components. | Not "energy" alone, which is ambiguous. |
