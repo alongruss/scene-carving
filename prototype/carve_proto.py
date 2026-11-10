@@ -2,22 +2,26 @@
 
 QUESTION
     Can a film be shortened by carving ONLY original whole frames and
-    mixed-audio intervals - no synthesis, no speed or pitch change - without
-    the seams being noticed? How far can it go before the seams show? And
-    does a nested, greedy, spread-aware cascade feel right behind a
-    liquid-rescale-style length slider?
+    mixed-audio intervals - no speed or pitch change - without the seams
+    being noticed? How far can it go before they show? And does a nested,
+    greedy, spread-aware cascade feel right behind a liquid-rescale-style
+    length slider?
 
 SCOPE (deliberately small)
-    - Signal-only scoring: no ASR, VAD models or LLMs.
-      * visual join cost  = temporal forward energy (frame distance at the
-        new join, relative to the shot's own motion)
-      * audio join cost   = spectral discontinuity relative to local natural
-        continuity, weighted by loudness
-      * content proxy     = loudness rank + motion rank of what is removed
-      * spread            = removed fraction near the seam
-      * fragment penalty  = discourages leaving a few flash frames behind
-    - Joint seams only: picture and audio are removed over the same interval
-      (no decoupled cuts yet). Audio joins get 10 ms equal-power crossfades.
+    - Signal-only scoring (no ASR, VAD models or LLMs):
+      * visual join cost  = absolute temporal forward energy at the new join;
+        mid-shot joins cost far more than trims at existing cuts, and more
+        again when subjects move (camera/subject split via phase correlation)
+      * audio join cost   = spectral discontinuity vs local natural continuity,
+        weighted by loudness
+      * content proxy     = loudness rank + subject-motion rank
+      * story weight      = stand-in for the plot layer: dark-dominant
+        title/credit blocks score ~0 (a local VLM would do this for real)
+      * spread, fragment penalty, per-join base cost
+      * join costs only partially amortised over seam length (L**0.5)
+    - Joint seams only (no decoupled cuts yet). Audio joins: 10 ms
+      equal-power crossfades. Same-shot picture joins: 6-frame cross-dissolve
+      of original frames (iteration 2, user decision 2026-11-10).
     - Every score is a percentile rank within THIS film (self-calibration).
 
 RUN
@@ -25,10 +29,7 @@ RUN
     Optional flags: --fractions 0.9 0.75 0.6   --no-render   --stop 0.2
 
 OUTPUT  renders/<stem>/  (gitignored)
-    viewer.html   open by double-click: slider preview, seam map, state panel
-    proxy.mp4     small copy of the original, played by the viewer
-    <stem>_090.mp4 ...   real carved renders (frame-accurate, crossfaded)
-    report.txt    numbers per length
+    viewer.html, proxy.mp4, <stem>_090.mp4 ..., report.txt, order.json
 """
 import argparse
 import heapq
@@ -36,22 +37,32 @@ import json
 import subprocess
 import time
 import wave
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 
 # --- knobs (global, NOT per film) -------------------------------------------
-SEAM_SIZES = (3, 6, 12, 24, 48, 96)  # candidate seam lengths in frames
+SEAM_SIZES = (3, 6, 12, 24, 48, 96)  # candidate window seams, in frames
+MAX_SHOT_SEAM_S = 10.0               # whole shots up to this length are seams too
 SPREAD_WIN_S = 4.0                   # half-window for the spread term
 LAMBDA_SPREAD = 1.5                  # spread weight (per removed frame)
 MIN_FRAGMENT = 6                     # kept runs shorter than this = flash
 FRAGMENT_PENALTY = 1.0
 JOIN_BASE = 0.4                      # every join is a risk, even a "free" one
-VISIBLE_JUMP_PENALTY = 4.0           # extra join cost at the most visible jumps
+JOIN_AMORT = 0.5                     # join cost / L**JOIN_AMORT (not fully amortised)
+AT_CUT_COST = 0.1                    # visual cost of a join that lands on a cut
+SAME_SHOT_BASE = 1.0                 # mid-shot (same camera) joins are jarring
+SUBJECT_W = 1.0                      # ... more so when subjects move near the join
+VISIBLE_JUMP_PENALTY = 4.0           # extra cost at the most visible jumps
+CREDITS_DARK = 0.42                  # dark-pixel share of a title/credit frame
+CREDITS_MIN_S = 20.0                 # a title/credit block lasts at least this
+CREDITS_STORY_W = 0.05               # story weight inside such a block
 SMALL_W = 160                        # analysis frame width
-XFADE_MS = 10
-KIND_NAMES = ["hold", "jump", "at-cut", "shot-drop", "edge"]
+XFADE_MS = 10                        # audio crossfade
+DISSOLVE_H = 3                       # picture dissolve = 2*H frames at same-shot joins
+KIND_NAMES = ["hold", "jump", "at-cut", "shot-drop", "edge", "credits"]
 
 
 def sh(cmd, **kw):
@@ -93,12 +104,57 @@ def sliding_median(x, k):
     return np.median(sliding_window_view(pad, 2 * k + 1), axis=1)
 
 
+def runs(mask):
+    idx = np.flatnonzero(np.diff(np.concatenate([[0], mask.astype(np.int8), [0]])))
+    return list(zip(idx[0::2], idx[1::2]))  # [start, end) in frames
+
+
 # --- 1. ANALYSIS -------------------------------------------------------------
+def motion_split(g, M=12):
+    """Global (camera) shift per frame via phase correlation; residual = subject motion."""
+    n, H, W = g.shape
+    win = (np.hanning(H)[:, None] * np.hanning(W)[None, :]).astype(np.float32)
+    cam = np.zeros((n, 2), np.int16)
+    subj = np.zeros(n, np.float32)
+    prev = None
+    for c0 in range(0, n, 512):
+        G = g[c0:c0 + 512].astype(np.float32)
+        Fc = np.fft.rfft2((G - G.mean(axis=(1, 2), keepdims=True)) * win)
+        for k in range(len(G)):
+            i = c0 + k
+            Fp = Fc[k - 1] if k > 0 else prev
+            if Fp is None:
+                continue
+            R = Fc[k] * np.conj(Fp)
+            r = np.fft.irfft2(R / (np.abs(R) + 1e-6), s=(H, W))
+            dy, dx = np.unravel_index(np.argmax(r), r.shape)
+            dy = int(np.clip(dy - H if dy > H // 2 else dy, -M, M))
+            dx = int(np.clip(dx - W if dx > W // 2 else dx, -M, M))
+            cam[i] = (dy, dx)
+            shifted = np.roll(g[i - 1].astype(np.int16), (dy, dx), axis=(0, 1))
+            subj[i] = np.abs(g[i].astype(np.int16) - shifted)[M:H - M, M:W - M].mean()
+        prev = Fc[-1]
+    return cam, subj
+
+
 def analyze(path, info, cache):
     if cache.exists():
-        print(f"[analysis] cached: {cache}")
         z = np.load(cache)
-        return {k: z[k] for k in z.files}
+        F = {k: z[k] for k in z.files}
+        print(f"[analysis] cached: {cache}")
+    else:
+        F = base_features(path, info)
+        np.savez(cache, **F)
+    if "subj" not in F:
+        t0 = time.time()
+        F["cam"], F["subj"] = motion_split(F["g"])
+        F["dark"] = (F["g"] < 40).mean(axis=(1, 2)).astype(np.float32)
+        np.savez(cache, **F)
+        print(f"[analysis] motion split + darkness in {time.time()-t0:.0f}s")
+    return F
+
+
+def base_features(path, info):
     t0 = time.time()
     W = SMALL_W
     H = int(round(info["h"] * W / info["w"] / 2)) * 2
@@ -148,38 +204,50 @@ def analyze(path, info, cache):
     nat = np.zeros(n, np.float32)
     nat[1:] = np.abs(spec_end[:-1] - spec_start[1:]).mean(1)
     nat_local = sliding_median(nat, 12).astype(np.float32)
-
-    feats = dict(g=g, d=d, cut=cut, shot=shot, rms_db=rms_db.astype(np.float32),
-                 start_db=start_db.astype(np.float32), end_db=end_db.astype(np.float32),
-                 spec_start=spec_start, spec_end=spec_end, nat=nat, nat_local=nat_local)
-    np.savez(cache, **feats)
     print(f"[analysis] done in {time.time()-t0:.0f}s, {int(cut.sum())} shots")
-    return feats
+    return dict(g=g, d=d, cut=cut, shot=shot, rms_db=rms_db.astype(np.float32),
+                start_db=start_db.astype(np.float32), end_db=end_db.astype(np.float32),
+                spec_start=spec_start, spec_end=spec_end, nat=nat, nat_local=nat_local)
+
+
+def credits_mask(dark, fps):
+    """Stand-in for the plot layer: long dark-dominant blocks near the film's ends."""
+    n = len(dark)
+    sm = sliding_median(dark, int(fps)) > CREDITS_DARK
+    mask = np.zeros(n, bool)
+    for s, e in runs(sm):
+        if e - s >= CREDITS_MIN_S * fps and (s > 0.75 * n or e < 0.1 * n):
+            mask[s:e] = True
+    return mask
 
 
 # --- 2. CASCADE (the liftable core) ------------------------------------------
 def cascade(F, fps, stop_fraction):
     """Greedy, lazy-re-evaluated seam removal. Returns the nested removal order."""
-    g, d, shot = F["g"], F["d"], F["shot"]
+    g, d, shot, subj = F["g"], F["d"], F["shot"], F["subj"]
     n = len(d)
     cut = F["cut"].astype(bool)
 
-    natural_d = d[~cut]
-    rank_d = rank_fn(natural_d)
+    rank_d = rank_fn(d[~cut])
     rank_l = rank_fn(F["rms_db"])
     rank_s = rank_fn(F["nat"][1:])
+    subj_rank = rank_fn(subj[~cut])(subj)
+    subj_rank[cut] = 0.0
     n_shots = int(shot.max()) + 1
     shot_start = np.searchsorted(shot, np.arange(n_shots), "left")
     shot_end = np.searchsorted(shot, np.arange(n_shots), "right") - 1
-    shot_med = np.array([np.median(d[s + 1:e + 1]) if e > s else 0.0
-                         for s, e in zip(shot_start, shot_end)])
-    shot_med_rank = rank_d(shot_med)
-    motion_rank = rank_d(d)
     loud_rank = rank_l(F["rms_db"])
-    content = 0.5 * loud_rank + 0.5 * motion_rank
-    cpre = np.concatenate([[0.0], np.cumsum(content)])
+    credits = credits_mask(F["dark"], fps)
+    story = np.where(credits, CREDITS_STORY_W, 1.0)
+    content = 0.5 * loud_rank + 0.5 * subj_rank
+    cpre = np.concatenate([[0.0], np.cumsum(content * story)])
+    wpre = np.concatenate([[0.0], np.cumsum(story)])
     spec_start, spec_end = F["spec_start"], F["spec_end"]
     start_db, end_db, nat_local = F["start_db"], F["end_db"], F["nat_local"]
+    if credits.any():
+        cr = runs(credits)
+        print("[cascade] title/credit blocks: " + ", ".join(
+            f"{s/fps//60:.0f}:{s/fps%60:04.1f}-{e/fps//60:.0f}:{e/fps%60:04.1f}" for s, e in cr))
 
     removed = np.zeros(n, bool)
     prev_k = np.arange(-1, n - 1)
@@ -191,17 +259,15 @@ def cascade(F, fps, stop_fraction):
         if p < 0 or q >= n:
             return 0.0, 0.0
         if shot[p] != shot[q]:
-            vj = 0.1
+            vj = AT_CUT_COST
         else:
-            # forward energy, absolute: how big is the new discontinuity within
-            # this film's range of frame-to-frame change? (relative-to-shot-motion
-            # under-priced jump cuts in tracking shots - see README findings)
-            # A visible jump is one perceptual event however long the seam is,
-            # so it must not be amortised away by cost-per-frame ranking: steep
-            # penalty once the jump is in the top 15% of natural change.
+            # Absolute forward energy, steeply penalised when visible; a
+            # same-camera cut is jarring in itself, more so with moving subjects.
             D = np.abs(g[p].astype(np.int16) - g[q]).mean()
             r = float(rank_d(D))
-            vj = r * r + VISIBLE_JUMP_PENALTY * max(0.0, r - 0.85) / 0.15
+            moving = max(subj_rank[max(p - 2, 0):p + 1].max(), subj_rank[q:q + 3].max())
+            vj = (SAME_SHOT_BASE + r * r + SUBJECT_W * float(moving)
+                  + VISIBLE_JUMP_PENALTY * max(0.0, r - 0.85) / 0.15)
         dist = float(np.abs(spec_end[p] - spec_start[q]).mean())
         spec = max(0.0, float(rank_s(dist)) - float(rank_s(nat_local[p])))
         loud = max(float(rank_l(end_db[p])), float(rank_l(start_db[q])))
@@ -229,12 +295,16 @@ def cascade(F, fps, stop_fraction):
         L = b - a + 1
         p, q = int(prev_k[a]), int(next_k[b])
         vj, aj = join_cost(p, q)
+        w_seam = (wpre[b + 1] - wpre[a]) / L
+        w_join = max(story[p] if p >= 0 else 1.0, story[q] if q < n else 1.0)
         C = (cpre[b + 1] - cpre[a]) / L
         x0, x1 = max(0, a - SW), min(n, b + 1 + SW)
-        S = LAMBDA_SPREAD * (removed[x0:x1].sum() + L) / (x1 - x0)
+        S = LAMBDA_SPREAD * w_seam * (removed[x0:x1].sum() + L) / (x1 - x0)
         Fp = FRAGMENT_PENALTY * fragments(a, b, p, q)
-        total = JOIN_BASE + vj + aj + Fp + L * (C + S)
-        return total / L, (p, q, vj, aj, C, S, Fp)
+        # growing an existing hole moves a join instead of adding one
+        grows = (a > 0 and removed[a - 1]) or (b + 1 < n and removed[b + 1])
+        join = ((0.0 if grows else JOIN_BASE) + vj + aj + Fp) * w_join
+        return join / L ** JOIN_AMORT + C + S, (p, q, vj, aj, C, S, Fp, w_seam)
 
     heap = []
 
@@ -248,6 +318,9 @@ def cascade(F, fps, stop_fraction):
     for w in SEAM_SIZES:
         for a in range(0, n - w + 1, max(1, w // 2)):
             push(a, a + w - 1)
+    for s, e in zip(shot_start, shot_end):
+        if e - s + 1 <= MAX_SHOT_SEAM_S * fps and e - s + 1 > SEAM_SIZES[-1]:
+            push(int(s), int(e))
     print(f"[cascade] {len(heap)} initial candidates ({time.time()-t0:.0f}s)")
 
     order, kept, target = [], n, int(stop_fraction * n)
@@ -259,18 +332,20 @@ def cascade(F, fps, stop_fraction):
         if heap and new > heap[0][0] + 1e-12:
             heapq.heappush(heap, (new, a, b))
             continue
-        p, q, vj, aj, C, S, Fp = parts
+        p, q, vj, aj, C, S, Fp, w_seam = parts
         shots_hit = range(shot[a], shot[b] + 1)
         drop = any(shot_kept[s] - (min(b, shot_end[s]) - max(a, shot_start[s]) + 1) == 0
                    for s in shots_hit)
-        if p < 0 or q >= n:
+        if w_seam < 0.5:
+            kind = 5
+        elif p < 0 or q >= n:
             kind = 4
         elif drop:
             kind = 3
         elif shot[p] != shot[q]:
             kind = 2
         else:
-            kind = 0 if motion_rank[a:b + 1].mean() < 0.35 else 1
+            kind = 0 if subj_rank[a:b + 1].mean() < 0.35 else 1
         for s in shots_hit:
             shot_kept[s] -= min(b, shot_end[s]) - max(a, shot_start[s]) + 1
         removed[a:b + 1] = True
@@ -287,7 +362,7 @@ def cascade(F, fps, stop_fraction):
             if q < n:
                 push(q, q + w - 1)
     print(f"[cascade] {len(order)} seams removed down to {kept/n:.0%} ({time.time()-t0:.0f}s)")
-    return order, dict(motion_rank=motion_rank, loud_rank=loud_rank,
+    return order, dict(subj_rank=subj_rank, loud_rank=loud_rank, credits=credits,
                        shot_start=shot_start, shot_end=shot_end)
 
 
@@ -302,9 +377,29 @@ def keep_mask(order, n, fraction):
     return ~removed
 
 
-def runs(mask):
-    idx = np.flatnonzero(np.diff(np.concatenate([[0], mask.astype(np.int8), [0]])))
-    return list(zip(idx[0::2], idx[1::2]))  # [start, end) in frames
+def picture_plan(keep, shot, h=DISSOLVE_H):
+    """Output frame list; same-shot joins become 2h-frame dissolves of original frames."""
+    n = len(keep)
+    rs = runs(keep)
+    out, run_pos = [], []
+    for s, e in rs:
+        run_pos.append(len(out))
+        out.extend(range(s, e))
+    used = np.zeros(len(out), bool)
+    dissolves = 0
+    for k in range(len(rs) - 1):
+        (s0, e0), (s1, e1) = rs[k], rs[k + 1]
+        p, q = e0 - 1, s1
+        if shot[p] != shot[q] or e0 - s0 < h or e1 - s1 < h or p + h >= n or q - h < 0:
+            continue
+        j0 = run_pos[k + 1] - h
+        if used[j0:j0 + 2 * h].any():
+            continue
+        for j in range(2 * h):
+            out[j0 + j] = (p - h + 1 + j, q - h + j, (j + 0.5) / (2 * h))
+        used[j0:j0 + 2 * h] = True
+        dissolves += 1
+    return out, dissolves
 
 
 # --- 3. REPORT ---------------------------------------------------------------
@@ -312,7 +407,8 @@ def report(order, F, aux, fps, fractions, path):
     n = len(F["d"])
     shot_len = aux["shot_end"] - aux["shot_start"] + 1
     lines = [f"frames={n} fps={fps} duration={n/fps/60:.2f} min shots={len(shot_len)} "
-             f"ASL={np.mean(shot_len)/fps:.2f}s", ""]
+             f"ASL={np.mean(shot_len)/fps:.2f}s credits={aux['credits'].sum()/fps:.1f}s", ""]
+    g, shot = F["g"], F["shot"]
     for fr in fractions:
         keep = keep_mask(order, n, fr)
         removed_idx = set(np.flatnonzero(~keep))
@@ -320,7 +416,12 @@ def report(order, F, aux, fps, fractions, path):
         kinds = {k: 0 for k in KIND_NAMES}
         for o in active:
             kinds[KIND_NAMES[o[2]]] += 1
-        joins = len(runs(keep)) - 1
+        rs = runs(keep)
+        joins = [(e0 - 1, s1) for (s0, e0), (s1, e1) in zip(rs[:-1], rs[1:])]
+        same = [(p, q) for p, q in joins if shot[p] == shot[q]]
+        D = [np.abs(g[p].astype(np.int16) - g[q]).mean() for p, q in same]
+        _, dissolves = picture_plan(keep, shot)
+        story_kept = keep[~aux["credits"]].mean()
         kept_per_shot = np.array([keep[s:e + 1].sum() for s, e in zip(aux["shot_start"], aux["shot_end"])])
         alive = kept_per_shot[kept_per_shot > 0]
         a, b = np.log(shot_len), np.log(alive)
@@ -328,25 +429,24 @@ def report(order, F, aux, fps, fractions, path):
         ks = np.max(np.abs(np.searchsorted(np.sort(a), grid, "right") / len(a)
                            - np.searchsorted(np.sort(b), grid, "right") / len(b)))
         w = int(10 * fps)
-        local = sliding_window_view((~keep).astype(np.float32), w).mean(1)
-        lines += [f"== keep {fr:.0%}: {keep.sum()/fps/60:.2f} min, {len(active)} seams, {joins} joins "
-                  f"({joins/(keep.sum()/fps/60):.1f}/min)",
+        story_only = ~aux["credits"]
+        local = sliding_window_view((~keep[story_only]).astype(np.float32), w).mean(1)
+        lines += [f"== keep {fr:.0%}: {keep.sum()/fps/60:.2f} min, {len(active)} seams, {len(joins)} joins "
+                  f"({len(joins)/(keep.sum()/fps/60):.1f}/min); story kept {story_kept:.0%}, "
+                  f"credits kept {keep[aux['credits']].mean() if aux['credits'].any() else 0:.0%}",
                   "   kinds: " + ", ".join(f"{k}={v}" for k, v in kinds.items()),
+                  f"   same-shot joins {len(same)} (dissolved {dissolves}), visible D>25: "
+                  f"{sum(x > 25 for x in D)}, max D {max(D) if D else 0:.1f}",
                   f"   shots kept {len(alive)}/{len(shot_len)}, ASL {np.mean(shot_len)/fps:.2f}s -> "
                   f"{np.mean(alive)/fps:.2f}s, KS(log shot len)={ks:.3f}",
-                  f"   local removal (10s windows): max {local.max():.0%}, std {local.std():.3f}",
-                  "   most expensive active seams (score, orig time, kind, vj, aj, C, S, frag):"]
-        for o in sorted(active, key=lambda o: -o[3])[:8]:
-            t = o[0] / fps
-            lines.append(f"     {o[3]:.3f}  {int(t//60):02d}:{t%60:05.2f}  len {o[1]-o[0]+1:3d}f  "
-                         f"{KIND_NAMES[o[2]]:9s} vj={o[4]} aj={o[5]} C={o[6]} S={o[7]} F={o[8]}")
-        lines.append("")
+                  f"   local story removal (10s windows): max {local.max():.0%}, std {local.std():.3f}", ""]
     Path(path).write_text("\n".join(lines), encoding="utf-8")
     print("\n".join(lines))
 
 
 # --- 4. RENDER ---------------------------------------------------------------
-def render(src, info, order, n, fractions, outdir, stem):
+def render(src, info, order, F, fractions, outdir, stem):
+    n, shot = len(F["d"]), F["shot"]
     fps, W, H = info["fps"], info["w"], info["h"]
     sr = 48000
     spf = int(round(sr / fps))
@@ -354,10 +454,10 @@ def render(src, info, order, n, fractions, outdir, stem):
     h = int(sr * XFADE_MS / 2000)
     ramp = np.linspace(0, np.pi / 2, 2 * h, dtype=np.float32)[:, None]
     fo, fi = np.cos(ramp), np.sin(ramp)
-    masks, encs = {}, {}
+    plans, encs = {}, {}
     for fr in fractions:
         keep = keep_mask(order, n, fr)
-        masks[fr] = keep
+        plans[fr], nd = picture_plan(keep, shot)
         pieces, joins, pos = [], [], 0
         for s, e in runs(keep):
             seg = audio[s * spf:e * spf]
@@ -382,6 +482,14 @@ def render(src, info, order, n, fractions, outdir, stem):
              "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "veryfast",
              "-crf", "20", "-c:a", "aac", "-b:a", "192k", "-shortest", str(mp4)],
             stdin=subprocess.PIPE)
+        print(f"[render] keep {fr:.0%}: {nd} picture dissolves")
+    need = Counter()
+    for plan in plans.values():
+        for it in plan:
+            if isinstance(it, tuple):
+                need[it[0]] += 1
+                need[it[1]] += 1
+    cache, ptr = {}, {fr: 0 for fr in fractions}
     fb = W * H * 3 // 2
     dec = subprocess.Popen(["ffmpeg", "-v", "error", "-i", str(src), "-f", "rawvideo",
                             "-pix_fmt", "yuv420p", "-"], stdout=subprocess.PIPE)
@@ -390,9 +498,28 @@ def render(src, info, order, n, fractions, outdir, stem):
         buf = dec.stdout.read(fb)
         if len(buf) < fb:
             break
+        if need[i]:
+            cache[i] = np.frombuffer(buf, np.uint8)
         for fr, enc in encs.items():
-            if masks[fr][i]:
-                enc.stdin.write(buf)
+            plan, pt = plans[fr], ptr[fr]
+            while pt < len(plan):
+                it = plan[pt]
+                if isinstance(it, tuple):
+                    A, B, al = it
+                    if max(A, B) > i:
+                        break
+                    mix = cache[A].astype(np.float32) * (1 - al) + cache[B].astype(np.float32) * al
+                    enc.stdin.write((mix + 0.5).astype(np.uint8).tobytes())
+                    for x in (A, B):
+                        need[x] -= 1
+                        if need[x] == 0:
+                            cache.pop(x, None)
+                else:
+                    if it > i:
+                        break
+                    enc.stdin.write(buf)
+                pt += 1
+            ptr[fr] = pt
         if i % 2000 == 0:
             print(f"[render] frame {i}/{n} ({time.time()-t0:.0f}s)")
     for enc in encs.values():
@@ -414,9 +541,10 @@ def viewer(order, F, aux, info, fractions, outdir, stem):
             str(proxy)])
     data = {
         "stem": stem, "fps": info["fps"], "n": len(F["d"]),
-        "motion": (aux["motion_rank"] * 99).astype(int).tolist(),
+        "motion": (aux["subj_rank"] * 99).astype(int).tolist(),
         "loud": (aux["loud_rank"] * 99).astype(int).tolist(),
         "cuts": np.flatnonzero(F["cut"]).tolist(),
+        "credits": [[int(s), int(e)] for s, e in runs(aux["credits"])],
         "order": order, "kinds": KIND_NAMES,
         "renders": [f"{stem}_{int(fr*100):03d}.mp4" for fr in fractions],
         "fractions": fractions,
@@ -446,7 +574,7 @@ def main():
     report(order, F, aux, info["fps"], args.fractions, outdir / "report.txt")
     viewer(order, F, aux, info, args.fractions, outdir, stem)
     if not args.no_render:
-        render(src, info, order, len(F["d"]), args.fractions, outdir, stem)
+        render(src, info, order, F, args.fractions, outdir, stem)
 
 
 if __name__ == "__main__":

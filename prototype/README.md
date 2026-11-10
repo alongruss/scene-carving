@@ -58,6 +58,37 @@ py -m venv .venv && .venv/Scripts/python -m pip install numpy        # once
    | 75% | 3.46 s | 0.156 |
    | 60% | 2.95 s | 0.234 |
 
+## Iteration 2: after watching (user feedback, 2026-11-10)
+
+**User verdict on iteration 1:**
+- The **end credits** (starting at 8:42 of the 90% render) threw the 90% version off. They are not story and should be cut completely.
+- **Any hard cut in the middle of a shot from the same camera, especially in a conversation, is very noticeable.** The cuts in the bridge conversation scenes were rough.
+- So: prefer **trimming the start or end of a shot or scene** over cutting in the middle, use **motion** to help scoring, and heal unavoidable same-camera cuts with a **short cross-dissolve** (decision: dissolve of original frames, not motion-interpolated morphs).
+
+**Changes:**
+- **Story-weight layer** (a stand-in for the plot layer). Dark-dominant blocks of 20 s or more near the film's ends are titles or credits, and their story weight is 0.05. That scales their content, spread and join costs. The detected block is 9:48–11:49; the post-credits scene at 11:49–12:05 stays story.
+- **Mid-shot joins are expensive:** a base cost of 1.0, plus absolute forward energy, plus **subject motion** near the join, plus the visible-jump penalty. Joins that land on an existing cut cost 0.1.
+- **Camera and subject motion are separated** by global phase correlation between consecutive frames. Subject motion is the residual after compensating for camera motion. It feeds both the content cost and the mid-shot join cost.
+- **Join costs are only partly averaged out:** they are divided by the square root of the seam length instead of the full length.
+- **Growing an existing hole costs no new join**, so holes grow instead of multiplying.
+- **Whole shots** up to 10 s are candidate seams.
+- **Renders:** every same-shot join becomes a **6-frame cross-dissolve** of original frames (handles on both sides, so length stays exact).
+
+**Results:**
+
+| Keep | Story kept | Credits kept | Joins per carved minute | Same-shot joins | Visible jumps | Trims at existing cuts | Average shot length |
+|---|---|---|---|---|---|---|---|
+| 90% | 100% | 38% | 1.5 | 9 (inside credits) | 3 (inside credits) | — | 4.56 → 4.36 s |
+| 75% | 90% | 0% | 4.9 (was 24) | 1 (dissolved) | 0 (was 8) | 197 | → 4.02 s, KS 0.077 |
+| 60% | 72% | 0% | 10.2 (was 36) | 4 (dissolved) | 0 (was 19) | 485 | → 3.41 s, KS 0.137 |
+
+**What changed:** the carving now looks like what an editor does. Lose the credits first, then tighten every shot at its cut points, and almost never cut inside a shot. The largest share of story removed from any 10 s window is 50% at 75% and 71% at 60%.
+
+**New risks to check by watching:**
+- With up to 485 trims at existing cuts, does the action still make sense? Trims can cut off the start of an action, which risks the cut no longer matching on the action across it.
+- The audio at those cut points.
+- Whether 6 frames is the right dissolve length.
+
 ## Open (needs eyes and ears, not metrics)
 
 - **Audio joins** are the expected first failure. Signal-only scoring has no beat or speech awareness: a 125 ms hiccup in music, or a clipped word, is invisible to these metrics. Listen to `_090`, `_075` and `_060`.

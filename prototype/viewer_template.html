@@ -26,7 +26,7 @@ input[type=range]{flex:1;min-width:180px;accent-color:var(--accent)}
 dl{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:0}
 dt{color:var(--muted)}dd{margin:0;font-variant-numeric:tabular-nums}
 .changed{background:var(--accent-soft);border-radius:4px;padding:0 4px}
-canvas{width:100%;display:block;border:1px solid var(--line);border-radius:6px;background:var(--card);cursor:pointer}
+canvas{width:100%;height:150px;display:block;border:1px solid var(--line);border-radius:6px;background:var(--card);cursor:pointer}
 #zoom{margin-top:8px}
 .legend{font-size:13px;color:var(--muted);margin:6px 0 0}
 .tabs{display:flex;gap:6px;flex-wrap:wrap}
@@ -68,7 +68,7 @@ a{color:var(--accent)}
 <h2>Seam map</h2>
 <canvas id="map" height="150"></canvas>
 <canvas id="zoom" height="150"></canvas>
-<p class="legend">Rows, top to bottom: <b>motion</b> · <b>loudness</b> (both ranked within this film) · <b>shot cuts</b> · <b>removal order</b> (darker means removed earlier in the cascade) · <b>removed at this length</b> (orange). The top strip is the whole film; the strip under it is ±8 s around the playhead, one column per frame. Click either strip to seek.</p>
+<p class="legend">Rows, top to bottom: <b>subject motion</b> (camera motion removed) · <b>loudness</b> (both ranked within this film) · <b>shot cuts</b>, with titles and credits shaded · <b>removal order</b> (darker means removed earlier in the cascade) · <b>removed at this length</b> (orange). Same-shot joins become 6-frame dissolves in the real renders; this preview shows them as hard cuts. The top strip is the whole film; the strip under it is ±8 s around the playhead, one column per frame. Click either strip to seek.</p>
 
 <h2>Walkthroughs</h2>
 <div class="tabs" id="tabs"></div>
@@ -150,7 +150,7 @@ function renderState() {
     ["By kind", D.kinds.map(x => `${x} ${S.kindCount[x]}`).join(" · ")],
     ["Shots kept", `${S.alive} of ${D.cuts.length}`],
     ["Avg shot length", `${(n / fps / D.cuts.length).toFixed(2)} s → ${S.asl.toFixed(2)} s`],
-    ["Max local removal", `${(100 * S.maxLocal).toFixed(0)}% <span class="muted">in any 10 s</span>`],
+    ["Max local removal", `${(100 * S.maxLocal).toFixed(0)}% <span class="muted">in any 10 s (credits included)</span>`],
     ["Playhead", `orig ${fmt(f / fps)} · carved ${fmt(S.keptBefore[f] / fps)}${S.removed[f] ? ' · <span class="changed">inside a removed seam</span>' : ""}`],
   ];
   $("state").innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("");
@@ -178,6 +178,8 @@ function drawRange(c, f0, f1) {
     if (minR < 0x7fffffff) { ctx.fillStyle = `rgba(${heat},${(1 - minR / order.length).toFixed(3)})`; ctx.fillRect(x, 78, 1, 34); }
     if (rem) { ctx.fillStyle = accent; ctx.globalAlpha = rem / cnt; ctx.fillRect(x, 114, 1, 30); ctx.globalAlpha = 1; }
   }
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--accent-soft");
+  for (const [s, e] of D.credits || []) if (e > f0 && s < f1) ctx.fillRect(Math.max(0, (s - f0) / per), 60, Math.min(w, (e - f0) / per) - Math.max(0, (s - f0) / per), 16);
   ctx.fillStyle = `rgba(${heat},.85)`;
   for (const cf of D.cuts) if (cf >= f0 && cf < f1) ctx.fillRect(Math.floor((cf - f0) / per), 60, 1, 16);
   const ph = v.currentTime * fps;
@@ -231,7 +233,7 @@ const seekTo = fn => () => { const f = fn(); seekFrame(Math.max(0, f - Math.roun
 const play = () => { $("skip").checked = true; v.play(); };
 const firstSeam = keep => { const a = activeAt(keep); return a.length ? Math.min(...a.map(o => o[0])) : 0; };
 const W = [
-  { t: "1 · What goes first (keep 95%)", d: "The cheapest 5% of the film. Expect black frames, fades, static holds and quiet moments. Does anything you'd miss go this early?",
+  { t: "1 · What goes first (keep 95%)", d: "The cheapest 5% of the film. Since iteration 2 that's the end credits (scored as near-zero story) and black lead-in. Does anything you'd miss go this early?",
     s: [["Set length 95%", setLen(95)], ["Jump 3 s before the first seam", seekTo(() => firstSeam(.95))], ["Play carved", play]] },
   { t: "2 · Gentle (keep 90%)", d: "10% shorter. Jump to the most expensive seam still in use at this length. That's the one most likely to show.",
     s: [["Set length 90%", setLen(90)], ["Jump to the most expensive seam", seekTo(() => mostExpensive(.9)[0])], ["Play carved", play]] },
