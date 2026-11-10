@@ -256,6 +256,49 @@ Measured against the subtitles, iteration 5's 30% render **lost 16 lines and par
 - One cue includes on-screen text ("Fourty years later").
 - **Screenplay** alignment (action lines → visual plot beats) is still to do.
 
+## Iteration 7: subtitles anchored to the audio (decision #62)
+
+**User:** "30 was wonderful. Because subtitle timing is coarse and might also differ in timing with some release versions, we need to anchor subtitles with whisper across the video."
+
+**`prototype/align_subs.py`** runs after `transcribe.py` and adds no new downloads.
+1. **Anchors.** A monotonic token alignment (`difflib`) of the subtitle text against the ASR words. Matched content words become anchor pairs.
+2. **Transform.**
+   - For each known framerate ratio (1, 25/23.976, 23.976/25, 24/25, 25/24, 24/23.976, 23.976/24), fit piecewise offsets: a new piece starts where residuals jump more than 1 s for 3 anchors (release edits).
+   - Pick by inlier support, then by residual (ties within 0.05 s), then by the ratio closest to 1 and the fewest pieces.
+3. **Per line**, in order of preference:
+   - `asr`: the ASR word times.
+   - `prompted`: Whisper re-run on the line's window with the line text as `initial_prompt`. The window is snapped to a 0.5 s grid for stability, and words count only where Silero VAD finds speech.
+   - `asr+vad`: partly heard. Partial evidence never shrinks a line below its mapped span.
+   - `vad`: speech found by Silero VAD only.
+   - `mapped`: the transform-mapped cue span.
+
+   Words stretched over silence are capped at 1 s.
+4. **Output.** `subs_aligned.json`, `<stem>.aligned.srt` and a report. `carve_proto.py --subs x.srt` picks up the aligned file automatically. Precise lines protect their word frames; coarse lines protect their span.
+
+**Result on *Tears of Steel*:**
+- 92 anchors, scale 1.0, offset −0.14 s, median residual 0.22 s.
+- Timing per line: **asr 35, prompted 18** (newly heard, including the climax and ending), asr+vad 5, vad 6, mapped 12.
+- Lines moved by a median 0.18 s (max 1.3 s) and got a median 0.30 s shorter.
+
+**Release self-test (`--selftest`):** the subtitles are distorted three ways and must re-align to the undistorted result.
+
+| Distortion | Lines within ±0.25 s | Detail |
+|---|---|---|
+| +3 s offset | 100% | |
+| PAL speed-up ×23.976/25 + 1.5 s | 100% | scale 1.04271 recovered |
+| +4 s after 5:00 (inserted scene) | 99% | breakpoint found at 305.2 s |
+
+The method counts are identical across all three distortions. Two bugs were found and fixed on the way:
+- rounding buckets in the ratio choice picked 0.999 over 1.0;
+- prompted windows were unstable to a few milliseconds of transform difference (fixed by grid-snapping).
+
+**Cascade, matching release:**
+- 30% keeps **75/76 lines intact, 0 partly cut**. "I know." is removed whole as the lowest plot score.
+- Speech covers 16% of frames.
+- Renders: 90/75/60/30% with exact lengths, A/V in sync, done in 223 s.
+
+**Cascade, PAL-distorted subtitles** (up to 22 s off by the end): aligned back, they give an **identical carve** — 1198 seams, the same line metrics.
+
 ## Open (needs eyes and ears, not metrics)
 
 - **Audio joins** are the expected first failure. Signal-only scoring has no beat or speech awareness: a 125 ms hiccup in music, or a clipped word, is invisible to these metrics. Listen to `_090`, `_075` and `_060`.

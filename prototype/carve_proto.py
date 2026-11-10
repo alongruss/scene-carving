@@ -322,7 +322,25 @@ def speech_layers(words_path, n, fps, srt_path=None):
         sent_mask[fs:fe + 1] = True
         sentences.append((fs, fe, float(im), " ".join(w["word"] for w in s)))
     cues_out = []
-    if srt_path and Path(srt_path).exists():
+    if srt_path and str(srt_path).endswith(".json") and Path(srt_path).exists():
+        # Subtitles anchored to the audio by align_subs.py (decision #62): precise lines
+        # ("asr"/"prompted") protect their actual word frames; coarser lines protect
+        # their whole aligned span.
+        al = json.loads(Path(srt_path).read_text(encoding="utf-8"))
+        words = [w for s in sents for w in s]
+        mids = np.array([(w["start"] + w["end"]) / 2 for w in words]) if words else np.zeros(0)
+        units, used = [], np.zeros(len(words), bool)
+        for L in al["lines"]:
+            fs, fe = int(L["start"] * fps), min(n - 1, int(np.ceil(L["end"] * fps)) - 1)
+            if L["method"] in ("asr", "prompted") and L["words"]:
+                for w in L["words"]:
+                    word_mask[int(w["start"] * fps):min(n, int(np.ceil(w["end"] * fps)))] = True
+            else:
+                word_mask[fs:fe + 1] = True
+            used |= (mids >= L["start"] - 0.3) & (mids <= L["end"] + 0.3)
+            units.append([fs, fe, L["text"]])
+            cues_out.append((fs, fe, L["text"], L["method"]))
+    elif srt_path and Path(srt_path).exists():
         # Subtitles are the authority on WHAT is said (decision #61): every subtitle line
         # becomes a protected unit. Heard by ASR -> its word timings set the span; unheard
         # (speech under music/effects) -> the whole cue span is protected as speech.
@@ -339,7 +357,8 @@ def speech_layers(words_path, n, fps, srt_path=None):
                 fs, fe = int(cs * fps), int(np.ceil(ce * fps)) - 1
                 word_mask[fs:min(n, fe + 1)] = True
             units.append([fs, min(n - 1, fe), text])
-            cues_out.append((fs, min(n - 1, fe), text, bool(len(hit))))
+            cues_out.append((fs, min(n - 1, fe), text, "asr" if len(hit) else "cue"))
+    if cues_out:
         k = 0
         for s in sents:  # ASR speech outside every subtitle line stays protected, as its own unit
             idx = list(range(k, k + len(s)))
@@ -432,8 +451,9 @@ def cascade(F, fps, stop_fraction, words_path=None, srt_path=None):
         print(f"[cascade] {src}: {len(sentences)} units, speech covers {word_mask.mean():.0%} of frames, "
               f"{len(fillers)} fillers/repeats: " + ", ".join(f"{w}({k[0]})" for _, _, w, k in fillers[:12]))
         if cues:
-            print(f"[cascade] subtitles: {len(cues)} lines, {sum(c[3] for c in cues)} heard by ASR, "
-                  f"{sum(not c[3] for c in cues)} protected from subtitle timing alone")
+            from collections import Counter as _C
+            print(f"[cascade] subtitles: {len(cues)} lines, timing by " +
+                  ", ".join(f"{m}={c}" for m, c in _C(c[3] for c in cues).most_common()))
     else:
         breath, breath_len = breathing_mask(F["rms_db"], fps)
         word_mask, sentences, sent_mask, src = np.zeros(n, bool), [], np.zeros(n, bool), "loudness"
@@ -885,7 +905,13 @@ def main():
     info = probe(src)
     info["src"] = src
     F = analyze(src, info, outdir / "features.npz")
-    order, aux = cascade(F, info["fps"], args.stop, outdir / "words.json", args.subs)
+    subs = args.subs
+    aligned = outdir / "subs_aligned.json"
+    if subs and aligned.exists() and \
+            Path(json.loads(aligned.read_text(encoding="utf-8")).get("source_srt", "")).resolve() == Path(subs).resolve():
+        print(f"[main] using subtitles anchored to the audio: {aligned}")
+        subs = aligned
+    order, aux = cascade(F, info["fps"], args.stop, outdir / "words.json", subs)
     (outdir / "order.json").write_text(json.dumps(order), encoding="utf-8")
     report(order, F, aux, info["fps"], args.fractions, outdir / "report.txt")
     viewer(order, F, aux, info, args.fractions, outdir, stem)
