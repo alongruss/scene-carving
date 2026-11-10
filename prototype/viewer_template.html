@@ -68,7 +68,7 @@ a{color:var(--accent)}
 <h2>Seam map</h2>
 <canvas id="map" height="150"></canvas>
 <canvas id="zoom" height="150"></canvas>
-<p class="legend">Rows, top to bottom: <b>subject motion</b> (camera motion removed) · <b>loudness</b> (both ranked within this film) · <b>shot cuts</b>, with titles and credits shaded · <b>removal order</b> (darker means removed earlier in the cascade) · <b>removed at this length</b> (orange). Same-shot joins become 6-frame dissolves in the real renders; this preview shows them as hard cuts. The top strip is the whole film; the strip under it is ±8 s around the playhead, one column per frame. Click either strip to seek.</p>
+<p class="legend">Rows, top to bottom: <b>subject motion</b> (camera motion removed) · <b>loudness</b> (both ranked within this film; the thin orange ticks under it mark protected <b>breathing room</b> after sound ends) · <b>shot cuts</b>, with titles and credits shaded · <b>removal order</b> (darker means removed earlier in the cascade) · <b>removed at this length</b> (orange). Same-shot joins become 6-frame dissolves in the real renders; this preview shows them as hard cuts. The top strip is the whole film; the strip under it is ±8 s around the playhead, one column per frame. Click either strip to seek.</p>
 
 <h2>Walkthroughs</h2>
 <div class="tabs" id="tabs"></div>
@@ -106,6 +106,8 @@ const Retime = (() => {
     for (let f = 1; f < n; f++) if (removed[f - 1] && !removed[f] && keptBefore[f] > 0) joins++;
     const kindCount = Object.fromEntries(kinds.map(x => [x, 0]));
     for (let i = 0; i < k; i++) kindCount[kinds[order[i][2]]]++;
+    const stratCount = {};
+    for (let i = 0; i < k; i++) { const s = order[i][9]; stratCount[s] = (stratCount[s] || 0) + 1; }
     const bounds = cuts.concat([n]);
     let alive = 0, aliveFrames = 0;
     for (let s = 0; s < cuts.length; s++) {
@@ -115,7 +117,7 @@ const Retime = (() => {
     const w = Math.round(10 * fps); let maxLocal = 0, acc = 0;
     for (let f = 0; f < n; f++) { acc += removed[f]; if (f >= w) acc -= removed[f - w]; if (f >= w - 1) maxLocal = Math.max(maxLocal, acc / w); }
     const kept = keptBefore[n];
-    return { removed, nextKept, keptBefore, joins, kindCount, alive, asl: aliveFrames / Math.max(alive, 1) / fps,
+    return { removed, nextKept, keptBefore, joins, kindCount, stratCount, alive, asl: aliveFrames / Math.max(alive, 1) / fps,
              kept, maxLocal, seams: k, joinsPerMin: joins / Math.max(kept / fps / 60, 1e-9) };
   };
   return { removalRank, prefixFor, carve };
@@ -148,6 +150,7 @@ function renderState() {
     ["Seams removed", `<span class="${diff(prev && prev.seams, S.seams)}">${S.seams}</span> of ${order.length} in the cascade`],
     ["Joins", `${S.joins} <span class="muted">(${S.joinsPerMin.toFixed(1)} per carved minute)</span>`],
     ["By kind", D.kinds.map(x => `${x} ${S.kindCount[x]}`).join(" · ")],
+    ["Heal strategy", (D.strategies || []).map((x, i) => `${x} ${S.stratCount[i] || 0}`).join(" · ") + ' <span class="muted">(as tagged at removal; audio always crossfades)</span>'],
     ["Shots kept", `${S.alive} of ${D.cuts.length}`],
     ["Avg shot length", `${(n / fps / D.cuts.length).toFixed(2)} s → ${S.asl.toFixed(2)} s`],
     ["Max local removal", `${(100 * S.maxLocal).toFixed(0)}% <span class="muted">in any 10 s (credits included)</span>`],
@@ -180,6 +183,8 @@ function drawRange(c, f0, f1) {
   }
   ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--accent-soft");
   for (const [s, e] of D.credits || []) if (e > f0 && s < f1) ctx.fillRect(Math.max(0, (s - f0) / per), 60, Math.min(w, (e - f0) / per) - Math.max(0, (s - f0) / per), 16);
+  ctx.fillStyle = accent;
+  for (const [s, e] of D.breath || []) if (e > f0 && s < f1) ctx.fillRect(Math.max(0, (s - f0) / per), 55, Math.max(1, Math.min(w, (e - f0) / per) - Math.max(0, (s - f0) / per)), 3);
   ctx.fillStyle = `rgba(${heat},.85)`;
   for (const cf of D.cuts) if (cf >= f0 && cf < f1) ctx.fillRect(Math.floor((cf - f0) / per), 60, 1, 16);
   const ph = v.currentTime * fps;
@@ -197,9 +202,9 @@ function renderNear() {
   const rows = [];
   for (let i = 0; i < S.seams; i++) { const o = order[i]; if (o[1] >= f - w && o[0] <= f + w) rows.push(o); }
   rows.sort((x, y) => x[0] - y[0]);
-  $("near").innerHTML = "<tr><th>Original time</th><th>Length</th><th>Kind</th><th>Rank in cascade</th><th>Cost/frame</th><th>Visual join</th><th>Audio join</th><th>Content</th><th>Spread</th><th>Flash</th></tr>" +
-    (rows.length ? rows.map(o => `<tr class="${f >= o[0] && f <= o[1] ? "here" : ""}"><td>${fmt(o[0] / fps)}</td><td>${o[1] - o[0] + 1} f (${((o[1] - o[0] + 1) / fps).toFixed(2)} s)</td><td>${D.kinds[o[2]]}</td><td>${order.indexOf(o) + 1}</td><td>${o[3]}</td><td>${o[4]}</td><td>${o[5]}</td><td>${o[6]}</td><td>${o[7]}</td><td>${o[8]}</td></tr>`).join("")
-      : `<tr><td colspan="10" class="muted">No seams removed within ±10 s at this length.</td></tr>`);
+  $("near").innerHTML = "<tr><th>Original time</th><th>Length</th><th>Kind</th><th>Strategy</th><th>Rank in cascade</th><th>Cost/frame</th><th>Visual join</th><th>Audio join</th><th>Content</th><th>Spread</th><th>Flash</th></tr>" +
+    (rows.length ? rows.map(o => `<tr class="${f >= o[0] && f <= o[1] ? "here" : ""}"><td>${fmt(o[0] / fps)}</td><td>${o[1] - o[0] + 1} f (${((o[1] - o[0] + 1) / fps).toFixed(2)} s)</td><td>${D.kinds[o[2]]}</td><td>${D.strategies ? D.strategies[o[9]] : ""}</td><td>${order.indexOf(o) + 1}</td><td>${o[3]}</td><td>${o[4]}</td><td>${o[5]}</td><td>${o[6]}</td><td>${o[7]}</td><td>${o[8]}</td></tr>`).join("")
+      : `<tr><td colspan="11" class="muted">No seams removed within ±10 s at this length.</td></tr>`);
 }
 
 function seekFrame(f) { v.currentTime = Math.max(0, Math.min(n - 1, f)) / fps + 0.001; }

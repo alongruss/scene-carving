@@ -62,7 +62,16 @@ CREDITS_STORY_W = 0.05               # story weight inside such a block
 SMALL_W = 160                        # analysis frame width
 XFADE_MS = 10                        # audio crossfade
 DISSOLVE_H = 3                       # picture dissolve = 2*H frames at same-shot joins
+HARD_OK_RANK = 0.5                   # mid-shot jump this small needs no dissolve
+BREATH_W = 1.5                       # per-frame cost of eating "breathing room"
+DEFAULT_FRACTIONS = [0.9, 0.75, 0.6, 0.3]
 KIND_NAMES = ["hold", "jump", "at-cut", "shot-drop", "edge", "credits"]
+# How a seam's join is healed. Picture: trim-at-cut = lands on an existing cut
+# (plain cut), dissolve = 2*H-frame cross-dissolve of original frames, hard =
+# mid-shot jump so small it is left as is, edge-trim = film start/end.
+# Audio always gets a 10 ms crossfade. Future candidate: "patch" (see
+# docs/research/patching-from-other-times.md).
+STRATEGIES = ["trim-at-cut", "dissolve", "hard", "edge-trim"]
 
 
 def sh(cmd, **kw):
@@ -210,6 +219,39 @@ def base_features(path, info):
                 spec_start=spec_start, spec_end=spec_end, nat=nat, nat_local=nat_local)
 
 
+def make_rank_d(F):
+    return rank_fn(F["d"][~F["cut"].astype(bool)])
+
+
+def join_strategy(p, q, F, rank_d):
+    """Index into STRATEGIES for the join between kept frames p and q."""
+    n = len(F["d"])
+    if p < 0 or q >= n:
+        return 3
+    if F["shot"][p] != F["shot"][q]:
+        return 0
+    D = np.abs(F["g"][p].astype(np.int16) - F["g"][q]).mean()
+    return 2 if float(rank_d(D)) < HARD_OK_RANK else 1
+
+
+def breathing_mask(rms_db, fps):
+    """Frames right after sound stops (and just before it starts) - learned from this film.
+
+    Signal-only stand-in for speech offsets: smoothed loudness with a film-level
+    threshold. Breath length = the film's median short pause, clamped 0.4-1.0 s.
+    """
+    n = len(rms_db)
+    sm = np.convolve(rms_db, np.ones(7) / 7, mode="same")
+    active = sm > np.percentile(sm, 60)
+    gaps = [e - s for s, e in runs(~active) if s > 0 and e < n and e - s < 3 * fps]
+    breath = int(np.clip(np.median(gaps) if gaps else fps / 2, 0.4 * fps, 1.0 * fps))
+    mask = np.zeros(n, bool)
+    for s, e in runs(active):
+        mask[e:e + breath] = True                       # breathing room after it ends
+        mask[max(0, s - breath // 2):s] = True          # a breath before it starts
+    return mask, breath
+
+
 def credits_mask(dark, fps):
     """Stand-in for the plot layer: long dark-dominant blocks near the film's ends."""
     n = len(dark)
@@ -228,8 +270,12 @@ def cascade(F, fps, stop_fraction):
     n = len(d)
     cut = F["cut"].astype(bool)
 
-    rank_d = rank_fn(d[~cut])
+    rank_d = make_rank_d(F)
     rank_l = rank_fn(F["rms_db"])
+    breath, breath_len = breathing_mask(F["rms_db"], fps)
+    bpre = np.concatenate([[0.0], np.cumsum(breath)])
+    print(f"[cascade] breathing room {breath_len} frames ({breath_len/fps:.2f}s), "
+          f"{breath.mean():.0%} of frames protected")
     rank_s = rank_fn(F["nat"][1:])
     subj_rank = rank_fn(subj[~cut])(subj)
     subj_rank[cut] = 0.0
@@ -297,7 +343,7 @@ def cascade(F, fps, stop_fraction):
         vj, aj = join_cost(p, q)
         w_seam = (wpre[b + 1] - wpre[a]) / L
         w_join = max(story[p] if p >= 0 else 1.0, story[q] if q < n else 1.0)
-        C = (cpre[b + 1] - cpre[a]) / L
+        C = (cpre[b + 1] - cpre[a]) / L + BREATH_W * w_seam * (bpre[b + 1] - bpre[a]) / L
         x0, x1 = max(0, a - SW), min(n, b + 1 + SW)
         S = LAMBDA_SPREAD * w_seam * (removed[x0:x1].sum() + L) / (x1 - x0)
         Fp = FRAGMENT_PENALTY * fragments(a, b, p, q)
@@ -355,7 +401,7 @@ def cascade(F, fps, stop_fraction):
             prev_k[q] = p
         kept -= b - a + 1
         order.append([a, b, kind, round(new, 4), round(vj, 3), round(aj, 3),
-                      round(C, 3), round(S, 3), round(Fp, 1)])
+                      round(C, 3), round(S, 3), round(Fp, 1), join_strategy(p, q, F, rank_d)])
         for w in SEAM_SIZES:
             if p >= 0:
                 push(p - w + 1, p)
@@ -363,7 +409,7 @@ def cascade(F, fps, stop_fraction):
                 push(q, q + w - 1)
     print(f"[cascade] {len(order)} seams removed down to {kept/n:.0%} ({time.time()-t0:.0f}s)")
     return order, dict(subj_rank=subj_rank, loud_rank=loud_rank, credits=credits,
-                       shot_start=shot_start, shot_end=shot_end)
+                       breath=breath, shot_start=shot_start, shot_end=shot_end)
 
 
 def keep_mask(order, n, fraction):
@@ -377,8 +423,9 @@ def keep_mask(order, n, fraction):
     return ~removed
 
 
-def picture_plan(keep, shot, h=DISSOLVE_H):
-    """Output frame list; same-shot joins become 2h-frame dissolves of original frames."""
+def picture_plan(keep, F, rank_d, h=DISSOLVE_H):
+    """Output frame list + per-join strategy counts; 'dissolve' joins become
+    2h-frame cross-dissolves of original frames (handles keep length exact)."""
     n = len(keep)
     rs = runs(keep)
     out, run_pos = [], []
@@ -387,19 +434,26 @@ def picture_plan(keep, shot, h=DISSOLVE_H):
         out.extend(range(s, e))
     used = np.zeros(len(out), bool)
     dissolves = 0
+    counts = Counter()
     for k in range(len(rs) - 1):
         (s0, e0), (s1, e1) = rs[k], rs[k + 1]
         p, q = e0 - 1, s1
-        if shot[p] != shot[q] or e0 - s0 < h or e1 - s1 < h or p + h >= n or q - h < 0:
+        strat = join_strategy(p, q, F, rank_d)
+        if strat == 1 and (e0 - s0 < h or e1 - s1 < h or p + h >= n or q - h < 0):
+            strat = 2  # no room for handles: falls back to a hard join
+        counts[STRATEGIES[strat]] += 1
+        if strat != 1:
             continue
         j0 = run_pos[k + 1] - h
         if used[j0:j0 + 2 * h].any():
+            counts["dissolve"] -= 1
+            counts["hard"] += 1
             continue
         for j in range(2 * h):
             out[j0 + j] = (p - h + 1 + j, q - h + j, (j + 0.5) / (2 * h))
         used[j0:j0 + 2 * h] = True
         dissolves += 1
-    return out, dissolves
+    return out, counts
 
 
 # --- 3. REPORT ---------------------------------------------------------------
@@ -409,6 +463,7 @@ def report(order, F, aux, fps, fractions, path):
     lines = [f"frames={n} fps={fps} duration={n/fps/60:.2f} min shots={len(shot_len)} "
              f"ASL={np.mean(shot_len)/fps:.2f}s credits={aux['credits'].sum()/fps:.1f}s", ""]
     g, shot = F["g"], F["shot"]
+    rank_d = make_rank_d(F)
     for fr in fractions:
         keep = keep_mask(order, n, fr)
         removed_idx = set(np.flatnonzero(~keep))
@@ -420,7 +475,7 @@ def report(order, F, aux, fps, fractions, path):
         joins = [(e0 - 1, s1) for (s0, e0), (s1, e1) in zip(rs[:-1], rs[1:])]
         same = [(p, q) for p, q in joins if shot[p] == shot[q]]
         D = [np.abs(g[p].astype(np.int16) - g[q]).mean() for p, q in same]
-        _, dissolves = picture_plan(keep, shot)
+        _, strat_counts = picture_plan(keep, F, rank_d)
         story_kept = keep[~aux["credits"]].mean()
         kept_per_shot = np.array([keep[s:e + 1].sum() for s, e in zip(aux["shot_start"], aux["shot_end"])])
         alive = kept_per_shot[kept_per_shot > 0]
@@ -435,7 +490,10 @@ def report(order, F, aux, fps, fractions, path):
                   f"({len(joins)/(keep.sum()/fps/60):.1f}/min); story kept {story_kept:.0%}, "
                   f"credits kept {keep[aux['credits']].mean() if aux['credits'].any() else 0:.0%}",
                   "   kinds: " + ", ".join(f"{k}={v}" for k, v in kinds.items()),
-                  f"   same-shot joins {len(same)} (dissolved {dissolves}), visible D>25: "
+                  "   join strategies: " + ", ".join(f"{s}={strat_counts.get(s, 0)}" for s in STRATEGIES)
+                  + f"; story breathing room eaten: "
+                  f"{(~keep & aux['breath'] & story_only).sum() / max((aux['breath'] & story_only).sum(), 1):.0%}",
+                  f"   same-shot joins {len(same)}, visible D>25: "
                   f"{sum(x > 25 for x in D)}, max D {max(D) if D else 0:.1f}",
                   f"   shots kept {len(alive)}/{len(shot_len)}, ASL {np.mean(shot_len)/fps:.2f}s -> "
                   f"{np.mean(alive)/fps:.2f}s, KS(log shot len)={ks:.3f}",
@@ -446,7 +504,7 @@ def report(order, F, aux, fps, fractions, path):
 
 # --- 4. RENDER ---------------------------------------------------------------
 def render(src, info, order, F, fractions, outdir, stem):
-    n, shot = len(F["d"]), F["shot"]
+    n, rank_d = len(F["d"]), make_rank_d(F)
     fps, W, H = info["fps"], info["w"], info["h"]
     sr = 48000
     spf = int(round(sr / fps))
@@ -457,7 +515,7 @@ def render(src, info, order, F, fractions, outdir, stem):
     plans, encs = {}, {}
     for fr in fractions:
         keep = keep_mask(order, n, fr)
-        plans[fr], nd = picture_plan(keep, shot)
+        plans[fr], counts = picture_plan(keep, F, rank_d)
         pieces, joins, pos = [], [], 0
         for s, e in runs(keep):
             seg = audio[s * spf:e * spf]
@@ -482,7 +540,7 @@ def render(src, info, order, F, fractions, outdir, stem):
              "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "veryfast",
              "-crf", "20", "-c:a", "aac", "-b:a", "192k", "-shortest", str(mp4)],
             stdin=subprocess.PIPE)
-        print(f"[render] keep {fr:.0%}: {nd} picture dissolves")
+        print(f"[render] keep {fr:.0%}: joins " + ", ".join(f"{k}={v}" for k, v in counts.items()))
     need = Counter()
     for plan in plans.values():
         for it in plan:
@@ -545,7 +603,8 @@ def viewer(order, F, aux, info, fractions, outdir, stem):
         "loud": (aux["loud_rank"] * 99).astype(int).tolist(),
         "cuts": np.flatnonzero(F["cut"]).tolist(),
         "credits": [[int(s), int(e)] for s, e in runs(aux["credits"])],
-        "order": order, "kinds": KIND_NAMES,
+        "order": order, "kinds": KIND_NAMES, "strategies": STRATEGIES,
+        "breath": [[int(s), int(e)] for s, e in runs(aux["breath"])],
         "renders": [f"{stem}_{int(fr*100):03d}.mp4" for fr in fractions],
         "fractions": fractions,
     }
@@ -558,7 +617,7 @@ def viewer(order, F, aux, info, fractions, outdir, stem):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("src")
-    ap.add_argument("--fractions", type=float, nargs="+", default=[0.9, 0.75, 0.6])
+    ap.add_argument("--fractions", type=float, nargs="+", default=DEFAULT_FRACTIONS)
     ap.add_argument("--stop", type=float, default=0.2)
     ap.add_argument("--no-render", action="store_true")
     args = ap.parse_args()

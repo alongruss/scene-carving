@@ -89,6 +89,37 @@ py -m venv .venv && .venv/Scripts/python -m pip install numpy        # once
 - The audio at those cut points.
 - Whether 6 frames is the right dissolve length.
 
+## Iteration 3: strategies, breathing room, 30% (user feedback, 2026-11-10)
+
+**User feedback on iteration 2:**
+- Tag seams with a removal/patch strategy.
+- Some cuts are too abrupt, landing right when speech ends with no breathing room.
+- Crossfades are better than the rough jump we had earlier, and better synthesis could improve this further in the future.
+- Always create a 30% version.
+- Research PatchMatch-style patching from other times: see `docs/research/patching-from-other-times.md` on `master`.
+
+**Changes:**
+- **Every seam is tagged with a heal strategy** (`STRATEGIES`): `trim-at-cut` (lands on an existing cut), `dissolve` (6-frame cross-dissolve of original frames), `hard` (a mid-shot jump between near-identical frames, rank below 0.5, so a dissolve would only ghost) or `edge-trim`.
+  - The render applies the strategy of each final join. A `dissolve` with no room for handles falls back to `hard`.
+  - The viewer shows the strategy for each seam, and the report counts strategies per join.
+  - `patch` is reserved as a future strategy.
+- **Breathing room, learned from the film.** Smoothed loudness with a film-level threshold marks where sound ends.
+  - The length is this film's median short pause, clamped to 0.4–1.0 s. On *Tears of Steel* that's **0.62 s**.
+  - Those frames after sound ends, plus half as many before it starts, cost 1.5 per frame. That covers 17% of frames.
+  - This is a signal-only stand-in for speech offsets. It also triggers on music and effects endings, and misses speech that ends under continuous music.
+- **Default lengths are 90/75/60/30%.**
+
+**Results:**
+
+| Keep | Length | Joins/min | trim-at-cut | dissolve | hard | Story breathing room eaten |
+|---|---|---|---|---|---|---|
+| 90% | 11:00.5 | 1.6 | 4 | 13 (in credits) | 1 | 0% |
+| 75% | 9:10.5 | 4.7 | 36 | 3 | 4 | 0% |
+| 60% | 7:20.4 | 12.1 | 71 | 12 | 6 | 0% |
+| 30% | 3:39.9 | 31.9 | 84 | 24 | 9 | 4% |
+
+At 30% only 36% of the story is kept: average shot length drops from 4.56 s to 1.84 s, 23 whole shots are dropped, and some 10 s windows are removed entirely. This is the extreme end. Rendering all four took 242 s.
+
 ## Open (needs eyes and ears, not metrics)
 
 - **Audio joins** are the expected first failure. Signal-only scoring has no beat or speech awareness: a 125 ms hiccup in music, or a clipped word, is invisible to these metrics. Listen to `_090`, `_075` and `_060`.
