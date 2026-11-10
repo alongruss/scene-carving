@@ -5,7 +5,7 @@
 It is inspired by liquid rescale and [seam carving](https://en.wikipedia.org/wiki/Seam_carving). The north-star test is *2001: A Space Odyssey*.
 
 > **Status: definition + prototype phase.**
-> - `master` holds the agreed definition, the decision log and the research.
+> - `main` holds the agreed definition, the decision log and the research.
 > - A **throwaway prototype** on branch [`prototype/carve-only`](#try-the-prototype) runs the whole pipeline end to end on real films. What it validated is folded back into the docs here.
 > - No production code yet; the license is undecided.
 
