@@ -76,6 +76,12 @@ The cascade repeatedly removes the cheapest remaining seam and records the order
    Hard-constraint violations make the cost infinite. Weights are self-calibrated per film. Lessons validated with the prototype:
    - **Mid-shot joins cost far more than trims at existing cuts.** A hard cut inside a same-camera shot, especially in a conversation, is very noticeable. So trimming a shot's or scene's start or end is preferred, and moving subjects near a join raise its cost further. This needs motion split into camera vs. subject motion.
    - **Titles and credits score near-zero story importance**, so they go first, entirely.
+   - **Information comes first, and motion is not information.**
+     - Cutting into a word is very expensive, and pauses inside a sentence are costly.
+     - A whole sentence is a seam (padded into its surrounding pauses), and removing it costs its plot score.
+     - In the prototype the plot score is an IDF stand-in for an LLM.
+     - Subject motion only raises the cost of mid-shot joins, never the value of what is removed.
+     - On *Tears of Steel* this kept 100% of the words at 30% length.
    - **A visible join is one perceptual event.** Its cost must not be averaged away over a long seam, and extending an existing hole adds no new join.
 2. **Remove** the cheapest seam and append it to the **removal order**.
 3. **Cascade the update:**

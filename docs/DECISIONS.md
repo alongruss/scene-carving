@@ -81,6 +81,14 @@ The user watched 90%, 75% and 60% carvings of *Tears of Steel*, made by the thro
 | 54 | Healing quality | "crossfades are better then the rough jump we had earlier, we might improve even more in the future with better synthesis". Better healing is a future direction. The question "is PatchMatch a relevant analogue?" was researched: [research/patching-from-other-times.md](research/patching-from-other-times.md). |
 | 55 | Review lengths | "always create a 30% version". The standard review renders are **90 / 75 / 60 / 30%**. |
 
+## Prototype feedback: after watching the 30% render (iteration 3)
+
+| # | Observation or question | Answer / decision |
+|---|---|---|
+| 56 | Words cut before a man walking | "why would you rather cut important words from sentences than cut a man walking … we need to plot score and conversation score to better protect informative scenes … let's better protect information." **Information comes first.** Speech is protected by a conversation score: cutting into a word is very expensive, whole sentences are seams priced by a plot score, and breathing room follows sentence ends. **Motion is not information**; it only makes joins more visible. |
+| 57 | Local speech recognition | Approved download of faster-whisper with the `small.en` model (486 MB), running locally on CPU. |
+| 58 | Healing method | "you can also do the bake-off". A blind bake-off of hard / dissolve / `patch` (graph-cut switch map) / best-pair snap over 11 story mid-shot joins was built. **Result pending the user's picks.** |
+
 ## Resolved tensions
 
 - **"Keep the plot untouched" (#40) vs. "just go" (#7) and "slider can go all the way" (#45).** There is no plot floor. Plot is protected *by ordering*: plot-bearing seams carry the highest importance and are removed last. The timeline shows exactly when plot starts to be lost.
