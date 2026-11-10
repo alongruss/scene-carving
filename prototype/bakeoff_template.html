@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Heal Bake-off</title>
+<style>
+:root{--bg:#f6f5f1;--fg:#1d1d1b;--muted:#6b6a65;--line:#dedcd5;--card:#fff;--accent:#c2410c;--accent-soft:rgba(194,65,12,.14)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141413;--fg:#ecebe6;--muted:#9c9a92;--line:#2e2d2a;--card:#1c1c1a;--accent:#f97316;--accent-soft:rgba(249,115,22,.18)}}
+:root[data-theme="dark"]{--bg:#141413;--fg:#ecebe6;--muted:#9c9a92;--line:#2e2d2a;--card:#1c1c1a;--accent:#f97316;--accent-soft:rgba(249,115,22,.18)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:1240px;margin:0 auto;padding:28px 16px 72px}
+h1{font-size:22px;margin:0 0 4px}.lede{color:var(--muted);max-width:900px}
+.banner{display:inline-block;font-size:12px;font-weight:600;letter-spacing:.05em;color:var(--accent);border:1px solid var(--accent);border-radius:4px;padding:1px 6px;margin-bottom:10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin:18px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.v{border:1px solid var(--line);border-radius:8px;padding:8px}
+.v.best{border-color:var(--accent);background:var(--accent-soft)}
+.v.worst{opacity:.55}
+video{width:100%;display:block;border-radius:4px;background:#000}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px;font-size:14px}
+.reveal{font-size:13px;color:var(--muted);margin-top:4px;min-height:1.2em}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:6px;padding:6px 12px;cursor:pointer}
+button.primary{border-color:var(--accent);color:var(--accent)}
+textarea{width:100%;min-height:120px;font:13px ui-monospace,monospace;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:8px}
+</style>
+</head>
+<body><main>
+<div class="banner">PROTOTYPE — BLIND BAKE-OFF</div>
+<h1>Heal bake-off: what should a same-camera cut look like?</h1>
+<p class="lede">Each card shows the same 3 seconds around one mid-shot cut, healed six different ways. They're labelled A–F in a shuffled order. For each card, pick the version you'd notice <b>least</b> (best) and <b>most</b> (worst). The clips loop; unmute for sound (the audio is the same in every version except the snapped ones). When you're done, press <b>Reveal</b> to see which method was which, then <b>Copy results</b> and paste them in chat.</p>
+<div id="cards"></div>
+<div class="card">
+  <div class="row"><button class="primary" id="reveal">Reveal methods</button><button id="copy">Copy results</button><span class="reveal" id="tally"></span></div>
+  <textarea id="out" readonly placeholder="Results appear here after Copy results"></textarea>
+</div>
+</main>
+<script>
+const CARDS = /*DATA*/null;
+const picks = {};
+const box = document.getElementById("cards");
+CARDS.forEach(c => {
+  const el = document.createElement("div"); el.className = "card";
+  el.innerHTML = `<b>Cut ${c.join + 1}</b> <span class="reveal">· first appears at ${c.first_at} · skips ${c.skip_s} s</span><div class="grid"></div>`;
+  const grid = el.querySelector(".grid");
+  c.variants.forEach(v => {
+    const d = document.createElement("div"); d.className = "v"; d.dataset.label = v.label;
+    d.innerHTML = `<video src="${v.file}" muted loop autoplay playsinline controls preload="auto"></video>
+      <div class="row"><b>${v.label}</b>
+      <label><input type="radio" name="best${c.join}" value="${v.label}"> best</label>
+      <label><input type="radio" name="worst${c.join}" value="${v.label}"> worst</label></div>
+      <div class="reveal" data-meta></div>`;
+    grid.appendChild(d);
+  });
+  el.addEventListener("change", e => {
+    const [kind] = e.target.name.match(/best|worst/); picks[c.join] = picks[c.join] || {};
+    picks[c.join][kind] = e.target.value;
+    el.querySelectorAll(".v").forEach(v => { v.classList.toggle("best", picks[c.join].best === v.dataset.label); v.classList.toggle("worst", picks[c.join].worst === v.dataset.label); });
+  });
+  box.appendChild(el);
+});
+const name = (c, lab) => (c.variants.find(v => v.label === lab) || {}).variant;
+document.getElementById("reveal").onclick = () => {
+  document.querySelectorAll(".card").forEach((el, i) => {
+    const c = CARDS[i]; if (!c) return;
+    el.querySelectorAll(".v").forEach(d => {
+      const v = c.variants.find(x => x.label === d.dataset.label);
+      d.querySelector("[data-meta]").textContent = `${v.variant}` + (v.energy !== undefined ? ` · seam E ${v.energy} vs ghost ${v.ghost} · ${v.solve_s}s` : "") + (v.snap !== undefined ? ` · snap ${v.snap}f` : "");
+    });
+  });
+  const best = {}, worst = {};
+  Object.entries(picks).forEach(([j, p]) => { const c = CARDS[j]; if (p.best) best[name(c, p.best)] = (best[name(c, p.best)] || 0) + 1; if (p.worst) worst[name(c, p.worst)] = (worst[name(c, p.worst)] || 0) + 1; });
+  document.getElementById("tally").textContent = "best: " + JSON.stringify(best) + " · worst: " + JSON.stringify(worst);
+};
+document.getElementById("copy").onclick = async () => {
+  const lines = CARDS.map(c => { const p = picks[c.join] || {}; return `cut ${c.join + 1} @${c.orig} best=${p.best ? name(c, p.best) : "-"} worst=${p.worst ? name(c, p.worst) : "-"}`; });
+  const txt = "bake-off results\n" + lines.join("\n");
+  document.getElementById("out").value = txt;
+  try { await navigator.clipboard.writeText(txt); } catch (e) {}
+};
+</script>
+</body></html>

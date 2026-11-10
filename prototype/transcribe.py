@@ -1,0 +1,35 @@
+"""PROTOTYPE - throwaway. Local speech recognition with word timings (faster-whisper, CPU).
+
+Usage: .venv/Scripts/python prototype/transcribe.py media/tears_of_steel_720p.mov
+Writes renders/<stem>/words.json: [{start, end, text, words: [{start, end, word, prob}]}]
+The model (Systran/faster-whisper-small.en, ~486 MB) is cached under cache/whisper (gitignored).
+"""
+import json
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import numpy as np
+from faster_whisper import WhisperModel
+
+src = Path(sys.argv[1])
+out = Path("renders") / src.stem / "words.json"
+out.parent.mkdir(parents=True, exist_ok=True)
+raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(src), "-vn", "-ac", "1", "-ar", "16000",
+                      "-f", "f32le", "-"], check=True, capture_output=True).stdout
+audio = np.frombuffer(raw, np.float32)
+t0 = time.time()
+model = WhisperModel("small.en", device="cpu", compute_type="int8", download_root="cache/whisper")
+print(f"[asr] model ready ({time.time()-t0:.0f}s)", flush=True)
+segments, info = model.transcribe(audio, language="en", word_timestamps=True, vad_filter=True,
+                                  condition_on_previous_text=False, beam_size=5)
+result = []
+for s in segments:
+    result.append({"start": round(s.start, 3), "end": round(s.end, 3), "text": s.text.strip(),
+                   "words": [{"start": round(w.start, 3), "end": round(w.end, 3), "word": w.word.strip(),
+                              "prob": round(w.probability, 3)} for w in (s.words or [])]})
+    print(f"[asr] {s.start:7.2f}-{s.end:7.2f} {s.text.strip()}", flush=True)
+out.write_text(json.dumps(result, indent=1), encoding="utf-8")
+print(f"[asr] {len(result)} segments, {sum(len(s['words']) for s in result)} words -> {out} "
+      f"({time.time()-t0:.0f}s)", flush=True)

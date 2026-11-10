@@ -120,6 +120,52 @@ py -m venv .venv && .venv/Scripts/python -m pip install numpy        # once
 
 At 30% only 36% of the story is kept: average shot length drops from 4.56 s to 1.84 s, 23 whole shots are dropped, and some 10 s windows are removed entirely. This is the extreme end. Rendering all four took 242 s.
 
+## Iteration 4: protect information (user feedback on the 30% render, 2026-11-10)
+
+**User feedback:**
+- "Why would you rather cut important words from sentences than cut a man walking in 00:51–00:59?"
+- The cut around 0:46 is hard for both audio and conversation.
+- The bridge conversation starting at 1:38 is missing a lot of important words, especially near 1:52.
+- So: add a plot score and a conversation score to better protect informative scenes.
+
+**Diagnosis:** the content proxy was `0.5 × loudness rank + 0.5 × subject-motion rank`.
+- The walking man (original 2:35–2:50) ranked 0.63 on subject motion, so he looked like information.
+- The quiet bridge dialogue ranked only 0.15–0.4 on loudness, measured against this action film's music and explosions, so its words looked cheap.
+- At 30% the bridge conversation kept only 37% of its frames.
+
+**Changes:**
+- **Local ASR:** `prototype/transcribe.py` runs faster-whisper `small.en` (int8, CPU) with VAD and word timestamps. It took 98 s for the 12-minute film and produced 253 words and 56 sentences (`renders/<stem>/words.json`).
+- **Conversation score:**
+  - Cutting *into* a word costs 8.0 per frame.
+  - Pauses inside a sentence cost 2.0 per frame.
+  - Breathing room now follows sentence ends, using the film's median gap between sentences: 0.79 s.
+- **Plot score stand-in:** each **whole sentence** is a candidate seam, padded halfway into the pauses on either side.
+  - Removing it costs `1.0 + 3.0 × importance` per frame.
+  - Importance is the rank of the summed IDF of its content words within this film's transcript, so rare names and nouns score high and "yeah" or "okay" score low.
+  - A local LLM would replace this later.
+- **Motion is no longer information.** Non-speech content is `0.4 × loudness`. Subject motion only raises the cost of mid-shot joins.
+
+**Results:** the information metric is now the headline.
+
+| Keep | Word frames kept | Sentences intact | Joins/min |
+|---|---|---|---|
+| 90% | 100% | 56/56 | 1.3 |
+| 75% | 100% | 56/56 | 3.7 |
+| 60% | 100% | 56/56 | 8.3 |
+| 30% | 100% | 56/56 | 18.0 (was 32) |
+
+- Speech covers only 10% of *Tears of Steel*'s frames, so even 30% is reachable by carving non-speech.
+- **Re-transcribing the actual 30% render gives 252 words, matching the original count. Every line is present.**
+- Spot checks at 30%:
+
+  | Spot | Original | Kept before | Kept now |
+  |---|---|---|---|
+  | Walking man | 2:35–2:51 | 53% | 22% |
+  | Bridge conversation | 5:18–6:05 | 37% | 82% |
+  | Around the old 0:46 cut | 1:54–2:30 | 12% | 24%, with its line kept |
+
+**The new risk is the opposite extreme.** At 30% the film becomes nearly "all dialogue, minimal visuals". Purely visual story beats, such as action that matters to the plot, now have no importance signal. That needs the VLM plot layer.
+
 ## Open (needs eyes and ears, not metrics)
 
 - **Audio joins** are the expected first failure. Signal-only scoring has no beat or speech awareness: a 125 ms hiccup in music, or a clipped word, is invisible to these metrics. Listen to `_090`, `_075` and `_060`.

@@ -65,7 +65,19 @@ DISSOLVE_H = 3                       # picture dissolve = 2*H frames at same-sho
 HARD_OK_RANK = 0.5                   # mid-shot jump this small needs no dissolve
 BREATH_W = 1.5                       # per-frame cost of eating "breathing room"
 DEFAULT_FRACTIONS = [0.9, 0.75, 0.6, 0.3]
-KIND_NAMES = ["hold", "jump", "at-cut", "shot-drop", "edge", "credits"]
+# Information protection (iteration 4, needs renders/<stem>/words.json from transcribe.py)
+WORD_W = 8.0                         # per frame: cutting INTO a word
+MIDSENT_W = 2.0                      # per frame: pauses inside a sentence (rushes speech)
+PLOT_BASE = 1.0                      # per frame: removing a WHOLE sentence ...
+PLOT_W = 3.0                         # ... plus this x its plot score (0..1)
+NONSPEECH_LOUD_W = 0.4               # non-speech content: loudness only (motion is not information)
+KIND_NAMES = ["hold", "jump", "at-cut", "shot-drop", "edge", "credits", "sentence"]
+STOPWORDS = set("""a an the and or but if so of to in on at by for with from as is are was were be been
+being am i you he she it we they me him her us them my your his its our their this that these those
+there here what which who whom whose when where why how not no yes yeah okay ok oh uh um hmm hey well
+just do does did done have has had will would can could should shall may might must let lets go going
+gonna get got come came know think see look right now then than too very really all some any one two
+up down out over into about again still also only even back""".split())
 # How a seam's join is healed. Picture: trim-at-cut = lands on an existing cut
 # (plain cut), dissolve = 2*H-frame cross-dissolve of original frames, hard =
 # mid-shot jump so small it is left as is, edge-trim = film start/end.
@@ -252,6 +264,52 @@ def breathing_mask(rms_db, fps):
     return mask, breath
 
 
+def speech_layers(words_path, n, fps):
+    """Conversation + plot-score stand-in from local ASR word timings.
+
+    Returns word_mask (frames inside a word), sentences [(fs, fe, importance, text)],
+    sent_mask (frames inside any sentence span) and a speech-based breathing-room
+    mask. Importance = rarity (idf) of the sentence's content words within this
+    film's transcript, ranked 0..1 - a stand-in for an LLM plot score.
+    """
+    segs = json.loads(Path(words_path).read_text(encoding="utf-8"))
+    sents, cur = [], []
+    for s in segs:
+        for w in s["words"]:
+            cur.append(w)
+            if w["word"].rstrip('"\')').endswith((".", "?", "!")):
+                sents.append(cur)
+                cur = []
+        if cur:
+            sents.append(cur)
+            cur = []
+    tok = lambda w: "".join(ch for ch in w["word"].lower() if ch.isalnum() or ch == "'").strip("'")
+    content = [{t for t in map(tok, s) if t and t not in STOPWORDS and len(t) > 1} for s in sents]
+    df = {}
+    for c in content:
+        for t in c:
+            df[t] = df.get(t, 0) + 1
+    raw = np.array([sum(np.log((1 + len(sents)) / (1 + df[t])) + 1 for t in c) for c in content])
+    imp = rank_fn(raw)(raw) if len(raw) else raw
+    word_mask = np.zeros(n, bool)
+    sent_mask = np.zeros(n, bool)
+    sentences = []
+    for s, im in zip(sents, imp):
+        for w in s:
+            word_mask[int(w["start"] * fps):min(n, int(np.ceil(w["end"] * fps)))] = True
+        fs, fe = int(s[0]["start"] * fps), min(n - 1, int(np.ceil(s[-1]["end"] * fps)) - 1)
+        sent_mask[fs:fe + 1] = True
+        sentences.append((fs, fe, float(im), " ".join(w["word"] for w in s)))
+    gaps = [b[0] - a[1] for a, b in zip(sentences[:-1], sentences[1:]) if 0 < b[0] - a[1] < 3 * fps]
+    breath = int(np.clip(np.median(gaps) if gaps else fps / 2, 0.4 * fps, 1.0 * fps))
+    bmask = np.zeros(n, bool)
+    for fs, fe, _, _ in sentences:
+        bmask[fe + 1:fe + 1 + breath] = True
+        bmask[max(0, fs - breath // 2):fs] = True
+    bmask &= ~sent_mask
+    return word_mask, sentences, sent_mask, bmask, breath
+
+
 def credits_mask(dark, fps):
     """Stand-in for the plot layer: long dark-dominant blocks near the film's ends."""
     n = len(dark)
@@ -264,7 +322,7 @@ def credits_mask(dark, fps):
 
 
 # --- 2. CASCADE (the liftable core) ------------------------------------------
-def cascade(F, fps, stop_fraction):
+def cascade(F, fps, stop_fraction, words_path=None):
     """Greedy, lazy-re-evaluated seam removal. Returns the nested removal order."""
     g, d, shot, subj = F["g"], F["d"], F["shot"], F["subj"]
     n = len(d)
@@ -272,9 +330,20 @@ def cascade(F, fps, stop_fraction):
 
     rank_d = make_rank_d(F)
     rank_l = rank_fn(F["rms_db"])
-    breath, breath_len = breathing_mask(F["rms_db"], fps)
+    if words_path and Path(words_path).exists():
+        word_mask, sentences, sent_mask, breath, breath_len = speech_layers(words_path, n, fps)
+        src = "speech"
+        print(f"[cascade] speech: {len(sentences)} sentences, words cover {word_mask.mean():.0%} of frames")
+    else:
+        breath, breath_len = breathing_mask(F["rms_db"], fps)
+        word_mask, sentences, sent_mask, src = np.zeros(n, bool), [], np.zeros(n, bool), "loudness"
+        print("[cascade] no words.json - information protection is loudness-only")
     bpre = np.concatenate([[0.0], np.cumsum(breath)])
-    print(f"[cascade] breathing room {breath_len} frames ({breath_len/fps:.2f}s), "
+    wdpre = np.concatenate([[0], np.cumsum(word_mask)])
+    s_fs = np.array([s[0] for s in sentences], np.int64)
+    s_fe = np.array([s[1] for s in sentences], np.int64)
+    s_rate = np.array([PLOT_BASE + PLOT_W * s[2] for s in sentences])
+    print(f"[cascade] breathing room ({src}) {breath_len} frames ({breath_len/fps:.2f}s), "
           f"{breath.mean():.0%} of frames protected")
     rank_s = rank_fn(F["nat"][1:])
     subj_rank = rank_fn(subj[~cut])(subj)
@@ -285,7 +354,9 @@ def cascade(F, fps, stop_fraction):
     loud_rank = rank_l(F["rms_db"])
     credits = credits_mask(F["dark"], fps)
     story = np.where(credits, CREDITS_STORY_W, 1.0)
-    content = 0.5 * loud_rank + 0.5 * subj_rank
+    # Information = speech (charged per sentence below) + a little loudness for
+    # music/effects. Motion is NOT information - it only makes joins visible.
+    content = NONSPEECH_LOUD_W * loud_rank if len(sentences) else 0.5 * loud_rank + 0.5 * subj_rank
     cpre = np.concatenate([[0.0], np.cumsum(content * story)])
     wpre = np.concatenate([[0.0], np.cumsum(story)])
     spec_start, spec_end = F["spec_start"], F["spec_end"]
@@ -337,20 +408,37 @@ def cascade(F, fps, stop_fraction):
                 f += 1
         return f
 
+    def speech_cost(a, b):
+        """Whole sentences cost their plot score; cutting INTO one costs per word frame."""
+        cost, whole = 0.0, 0
+        for k in range(np.searchsorted(s_fe, a), np.searchsorted(s_fs, b, "right")):
+            fs, fe = s_fs[k], s_fe[k]
+            o0, o1 = max(a, fs), min(b, fe)
+            if o0 > o1:
+                continue
+            if a <= fs and fe <= b:
+                cost += (fe - fs + 1) * s_rate[k]
+                whole += 1
+            else:
+                wf = wdpre[o1 + 1] - wdpre[o0]
+                cost += WORD_W * wf + MIDSENT_W * ((o1 - o0 + 1) - wf)
+        return cost, whole
+
     def evaluate(a, b):
         L = b - a + 1
         p, q = int(prev_k[a]), int(next_k[b])
         vj, aj = join_cost(p, q)
         w_seam = (wpre[b + 1] - wpre[a]) / L
         w_join = max(story[p] if p >= 0 else 1.0, story[q] if q < n else 1.0)
-        C = (cpre[b + 1] - cpre[a]) / L + BREATH_W * w_seam * (bpre[b + 1] - bpre[a]) / L
+        sp, whole = speech_cost(a, b)
+        C = ((cpre[b + 1] - cpre[a]) + w_seam * (sp + BREATH_W * (bpre[b + 1] - bpre[a]))) / L
         x0, x1 = max(0, a - SW), min(n, b + 1 + SW)
         S = LAMBDA_SPREAD * w_seam * (removed[x0:x1].sum() + L) / (x1 - x0)
         Fp = FRAGMENT_PENALTY * fragments(a, b, p, q)
         # growing an existing hole moves a join instead of adding one
         grows = (a > 0 and removed[a - 1]) or (b + 1 < n and removed[b + 1])
         join = ((0.0 if grows else JOIN_BASE) + vj + aj + Fp) * w_join
-        return join / L ** JOIN_AMORT + C + S, (p, q, vj, aj, C, S, Fp, w_seam)
+        return join / L ** JOIN_AMORT + C + S, (p, q, vj, aj, C, S, Fp, w_seam, whole)
 
     heap = []
 
@@ -360,6 +448,26 @@ def cascade(F, fps, stop_fraction):
         sc, _ = evaluate(a, b)
         heapq.heappush(heap, (sc, a, b))
 
+    # whole-sentence seams, padded halfway into the pauses on each side (max 1 s)
+    pad_lo, pad_hi = [], []
+    for k in range(len(sentences)):
+        prev_end = s_fe[k - 1] if k > 0 else -1
+        next_start = s_fs[k + 1] if k + 1 < len(sentences) else n
+        pad_lo.append(max(prev_end + 1, s_fs[k] - min(int(fps), (s_fs[k] - prev_end) // 2)))
+        pad_hi.append(min(next_start - 1, s_fe[k] + min(int(fps), (next_start - s_fe[k]) // 2)))
+
+    def push_sentence(k):
+        """Push sentence k with whatever of its padding is still kept."""
+        fs, fe = int(s_fs[k]), int(s_fe[k])
+        if removed[fs:fe + 1].any():
+            return
+        lo, hi = fs, fe
+        while lo - 1 >= pad_lo[k] and not removed[lo - 1]:
+            lo -= 1
+        while hi + 1 <= pad_hi[k] and not removed[hi + 1]:
+            hi += 1
+        push(lo, hi)
+
     t0 = time.time()
     for w in SEAM_SIZES:
         for a in range(0, n - w + 1, max(1, w // 2)):
@@ -367,6 +475,8 @@ def cascade(F, fps, stop_fraction):
     for s, e in zip(shot_start, shot_end):
         if e - s + 1 <= MAX_SHOT_SEAM_S * fps and e - s + 1 > SEAM_SIZES[-1]:
             push(int(s), int(e))
+    for k in range(len(sentences)):
+        push_sentence(k)
     print(f"[cascade] {len(heap)} initial candidates ({time.time()-t0:.0f}s)")
 
     order, kept, target = [], n, int(stop_fraction * n)
@@ -378,12 +488,14 @@ def cascade(F, fps, stop_fraction):
         if heap and new > heap[0][0] + 1e-12:
             heapq.heappush(heap, (new, a, b))
             continue
-        p, q, vj, aj, C, S, Fp, w_seam = parts
+        p, q, vj, aj, C, S, Fp, w_seam, whole = parts
         shots_hit = range(shot[a], shot[b] + 1)
         drop = any(shot_kept[s] - (min(b, shot_end[s]) - max(a, shot_start[s]) + 1) == 0
                    for s in shots_hit)
         if w_seam < 0.5:
             kind = 5
+        elif whole:
+            kind = 6
         elif p < 0 or q >= n:
             kind = 4
         elif drop:
@@ -407,9 +519,14 @@ def cascade(F, fps, stop_fraction):
                 push(p - w + 1, p)
             if q < n:
                 push(q, q + w - 1)
+        if len(sentences):  # neighbouring sentences may have lost some padding
+            for k in range(max(0, np.searchsorted(s_fe, a) - 1),
+                           min(len(sentences), np.searchsorted(s_fs, b, "right") + 1)):
+                push_sentence(k)
     print(f"[cascade] {len(order)} seams removed down to {kept/n:.0%} ({time.time()-t0:.0f}s)")
     return order, dict(subj_rank=subj_rank, loud_rank=loud_rank, credits=credits,
-                       breath=breath, shot_start=shot_start, shot_end=shot_end)
+                       breath=breath, shot_start=shot_start, shot_end=shot_end,
+                       word_mask=word_mask, sentences=sentences)
 
 
 def keep_mask(order, n, fraction):
@@ -486,9 +603,17 @@ def report(order, F, aux, fps, fractions, path):
         w = int(10 * fps)
         story_only = ~aux["credits"]
         local = sliding_window_view((~keep[story_only]).astype(np.float32), w).mean(1)
+        wm, sents = aux["word_mask"], aux["sentences"]
+        whole_kept = sum(keep[fs:fe + 1].all() for fs, fe, _, _ in sents)
+        whole_gone = sum((~keep[fs:fe + 1]).all() for fs, fe, _, _ in sents)
+        clipped = [t for fs, fe, _, t in sents if 0 < keep[fs:fe + 1].sum() < fe - fs + 1
+                   and (~keep[fs:fe + 1] & wm[fs:fe + 1]).any()]
+        info_line = (f"   information: word frames kept {keep[wm].mean() if wm.any() else 1:.0%}; sentences "
+                     f"{whole_kept} intact / {len(clipped)} with words cut / {whole_gone} removed whole")
         lines += [f"== keep {fr:.0%}: {keep.sum()/fps/60:.2f} min, {len(active)} seams, {len(joins)} joins "
                   f"({len(joins)/(keep.sum()/fps/60):.1f}/min); story kept {story_kept:.0%}, "
                   f"credits kept {keep[aux['credits']].mean() if aux['credits'].any() else 0:.0%}",
+                  info_line,
                   "   kinds: " + ", ".join(f"{k}={v}" for k, v in kinds.items()),
                   "   join strategies: " + ", ".join(f"{s}={strat_counts.get(s, 0)}" for s in STRATEGIES)
                   + f"; story breathing room eaten: "
@@ -628,7 +753,7 @@ def main():
     info = probe(src)
     info["src"] = src
     F = analyze(src, info, outdir / "features.npz")
-    order, aux = cascade(F, info["fps"], args.stop)
+    order, aux = cascade(F, info["fps"], args.stop, outdir / "words.json")
     (outdir / "order.json").write_text(json.dumps(order), encoding="utf-8")
     report(order, F, aux, info["fps"], args.fractions, outdir / "report.txt")
     viewer(order, F, aux, info, args.fractions, outdir, stem)
