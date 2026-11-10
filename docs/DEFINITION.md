@@ -53,6 +53,11 @@ Analysis reads the film once and produces the **score map**: time-aligned layers
 - **Subtitle file** (SRT/VTT).
   - Authoritative dialogue text and timing, better than ASR. ASR word timing still places the cuts.
   - Every subtitle line is a protected unit. If ASR missed the line, its whole cue span is protected.
+  - **Anchored to the audio** (decision #62). Subtitle timing is coarse and release-dependent, so lines are aligned to *this* film's audio:
+    - text anchors against the ASR words;
+    - a framerate-ratio transform (PAL/NTSC) plus piecewise offsets for scenes added or cut;
+    - per-line timing from ASR words, a Whisper re-run prompted with the line text (gated by VAD), VAD alone, or the mapped span, each with a confidence.
+    - *Validated:* +3 s offset, PAL speed-up and an inserted scene all re-align within ±0.25 s (100/100/99% of lines), and PAL-distorted subtitles give an identical carve.
   - *Validated in the prototype:* on *Tears of Steel*, Whisper missed 24 of 76 lines spoken under music and effects, including the climax. With the subtitles, the 30% version keeps 74 lines intact and cuts none partially, where it had lost 16 and partly cut 16.
   - **CC/SDH** subtitles add speaker names (who speaks, and to whom) and sound-event cues ("[door slams]", "[music swells]"), which mark plot-relevant sounds the dialogue never mentions.
 - **Screenplay** (found online).
@@ -231,3 +236,19 @@ Media files never go into git (see `.gitignore`).
 - **Models:** which local models to use for mood and plot, and how to score sync-critical *non-speech* events.
 - **Camera-move frame dropping:** the threshold at which it becomes noticeable.
 - **Crossfade length and shape** that stays cheap enough for live preview.
+
+## 12. Future directions
+
+- **Lengthening ("liquid stretch")** (user idea, #64). Seam carving also *enlarges* images by duplicating its lowest-energy seams. The time-domain equivalent is to insert time where it is least noticeable and carries no meaning:
+  - lengthen existing pauses and breathing room;
+  - extend static holds and shot tails by repeating original frames, which is invisible in still shots;
+  - pad silences.
+
+  Lengthening would use the same score map run in reverse: an insertion order, spread across the film, never inside speech or subject motion. It needs **no speed change** (slow motion distorts physics and stays excluded).
+
+  **Open decision:** carving into silence is free, but lengthening needs extra *audio*: repeated room tone or silence. Looping was ruled out in #41, so this needs a decision.
+
+  Possible uses:
+  - slower pacing for accessibility, language learners or older viewers;
+  - fitting a fixed broadcast slot;
+  - giving a rushed modern edit more breathing room.
