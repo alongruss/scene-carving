@@ -187,10 +187,10 @@ def base_features(path, info):
     n = len(g)
     print(f"[analysis] {n} frames decoded at {W}x{H} ({time.time()-t0:.0f}s)")
 
-    gi = g.astype(np.int16)
     d = np.zeros(n, np.float32)
-    d[1:] = np.abs(gi[1:] - gi[:-1]).mean(axis=(1, 2))
-    del gi
+    for c0 in range(1, n, 4096):  # chunked: a full int16 copy of a feature film is ~6 GB
+        c1 = min(n, c0 + 4096)
+        d[c0:c1] = np.abs(g[c0:c1].astype(np.int16) - g[c0 - 1:c1 - 1]).mean(axis=(1, 2))
     hist = np.stack([np.bincount(f.ravel() >> 3, minlength=32) for f in g])
     hist = hist.astype(np.float32) / hist.sum(1, keepdims=True)
     hd = np.zeros(n, np.float32)
@@ -779,11 +779,16 @@ def report(order, F, aux, fps, fractions, path):
 
 
 # --- 4. RENDER ---------------------------------------------------------------
-def render(src, info, order, F, fractions, outdir, stem):
+def render(src, info, order, F, fractions, outdir, stem, render_height=None):
     n, rank_d = len(F["d"]), make_rank_d(F)
     fps, W, H = info["fps"], info["w"], info["h"]
+    W0, H0 = W, H
+    if render_height and render_height < H:
+        W, H = int(round(W * render_height / H)), render_height
+    W, H = W // 2 * 2, H // 2 * 2  # yuv420p / libx264 need even sizes (e.g. 853x480, 720x405)
+    vf = ["-vf", f"scale={W}:{H}"] if (W, H) != (W0, H0) else []
     sr = 48000
-    spf = int(round(sr / fps))
+    fsamp = lambda f: int(round(f * sr / fps))  # noqa: E731  exact per frame (29.97/23.976 fps safe)
     audio = read_audio(src, sr, 2)
     h = int(sr * XFADE_MS / 2000)
     ramp = np.linspace(0, np.pi / 2, 2 * h, dtype=np.float32)[:, None]
@@ -794,10 +799,10 @@ def render(src, info, order, F, fractions, outdir, stem):
         plans[fr], counts = picture_plan(keep, F, rank_d)
         pieces, joins, pos = [], [], 0
         for s, e in runs(keep):
-            seg = audio[s * spf:e * spf]
+            seg = audio[fsamp(s):fsamp(e)]
             pieces.append(seg)
             pos += len(seg)
-            joins.append((pos, s * spf, e * spf))
+            joins.append((pos, fsamp(s), fsamp(e)))
         out = np.concatenate(pieces).copy()
         for (j, _, end_prev), (_, start_next, _) in zip(joins[:-1], joins[1:]):
             if j - h < 0 or j + h > len(out) or end_prev + h > len(audio) or start_next - h < 0:
@@ -825,7 +830,7 @@ def render(src, info, order, F, fractions, outdir, stem):
                 need[it[1]] += 1
     cache, ptr = {}, {fr: 0 for fr in fractions}
     fb = W * H * 3 // 2
-    dec = subprocess.Popen(["ffmpeg", "-v", "error", "-i", str(src), "-f", "rawvideo",
+    dec = subprocess.Popen(["ffmpeg", "-v", "error", "-i", str(src), *vf, "-f", "rawvideo",
                             "-pix_fmt", "yuv420p", "-"], stdout=subprocess.PIPE)
     t0 = time.time()
     for i in range(n):
@@ -897,6 +902,7 @@ def main():
     ap.add_argument("--stop", type=float, default=0.2)
     ap.add_argument("--no-render", action="store_true")
     ap.add_argument("--subs", help="subtitle file (SRT) - authoritative dialogue for the plot layer")
+    ap.add_argument("--render-height", type=int, help="downscale renders to this height (e.g. 720)")
     args = ap.parse_args()
     src = Path(args.src)
     stem = src.stem
@@ -916,7 +922,7 @@ def main():
     report(order, F, aux, info["fps"], args.fractions, outdir / "report.txt")
     viewer(order, F, aux, info, args.fractions, outdir, stem)
     if not args.no_render:
-        render(src, info, order, F, args.fractions, outdir, stem)
+        render(src, info, order, F, args.fractions, outdir, stem, args.render_height)
 
 
 if __name__ == "__main__":
