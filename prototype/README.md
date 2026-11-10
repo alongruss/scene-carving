@@ -217,6 +217,45 @@ The user marked a worst variant for 10 of the 11 cuts, but a best for only one.
 
 At 30% all 58 sentences are intact and 100% of real-word frames are kept. Filler cuts land *inside* speech, so they're ordered after silent trims. That is correct for "least noticeable first", and they'll matter more in interviews or documentaries.
 
+## Iteration 6: subtitles as the authority on what is said (decision #61)
+
+**User idea:** scripts found online and subtitle files (possibly CC) can feed plot scoring.
+
+**Test material:** Blender's official `TOS-en.srt` (76 lines, 4.7 KB), downloaded to `media/`.
+
+**Finding: speech recognition misses a lot under music and effects.** Whisper heard only **52 of the 76 subtitle lines**. The 24 it missed include:
+- the climax: "The world's changed, Celia…" / "…maybe we can too.";
+- "Captain! We have to abort!";
+- the ending: "There's a lesson to be learned from this." / "Could'a gone worse.".
+
+Measured against the subtitles, iteration 5's 30% render **lost 16 lines and partly cut 16 more**. Its "100% of words kept" claim only covered the words Whisper heard.
+
+**Change (`--subs file.srt`):**
+- Every subtitle line becomes a protected unit.
+  - If ASR heard it, its word timings set the span.
+  - If not, the whole cue span is protected as speech.
+- ASR speech outside every subtitle line stays protected as its own unit.
+- The plot score's IDF is computed over the subtitle text.
+- The report adds a **subtitle-line** metric: intact / partly cut / lost.
+
+**Result:**
+
+| Keep | Subtitle lines intact | Partly cut | Lost |
+|---|---|---|---|
+| 90% | 76 | 0 | 0 |
+| 75% | 76 | 0 | 0 |
+| 60% | 76 | 0 | 0 |
+| 30% | **74** | **0** | 2 ("There she is.", "Now.") |
+
+- At 30%, the only lines lost are those two, removed whole as the lowest-plot lines.
+- Speech now covers 15% of frames (was 10%).
+
+**Caveats:**
+- SRT timing is coarse (often whole seconds), so unheard lines are protected over their full cue span.
+- This SRT is plain dialogue, not SDH, so there are no sound-event cues yet.
+- One cue includes on-screen text ("Fourty years later").
+- **Screenplay** alignment (action lines → visual plot beats) is still to do.
+
 ## Open (needs eyes and ears, not metrics)
 
 - **Audio joins** are the expected first failure. Signal-only scoring has no beat or speech awareness: a 125 ms hiccup in music, or a clipped word, is invisible to these metrics. Listen to `_090`, `_075` and `_060`.

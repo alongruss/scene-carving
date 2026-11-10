@@ -34,6 +34,7 @@ OUTPUT  renders/<stem>/  (gitignored)
 import argparse
 import heapq
 import json
+import re
 import subprocess
 import time
 import wave
@@ -267,7 +268,7 @@ def breathing_mask(rms_db, fps):
     return mask, breath
 
 
-def speech_layers(words_path, n, fps):
+def speech_layers(words_path, n, fps, srt_path=None):
     """Conversation + plot-score stand-in from local ASR word timings.
 
     Returns word_mask (frames inside a word), sentences [(fs, fe, importance, text)],
@@ -320,6 +321,53 @@ def speech_layers(words_path, n, fps):
         fs, fe = int(s[0]["start"] * fps), min(n - 1, int(np.ceil(s[-1]["end"] * fps)) - 1)
         sent_mask[fs:fe + 1] = True
         sentences.append((fs, fe, float(im), " ".join(w["word"] for w in s)))
+    cues_out = []
+    if srt_path and Path(srt_path).exists():
+        # Subtitles are the authority on WHAT is said (decision #61): every subtitle line
+        # becomes a protected unit. Heard by ASR -> its word timings set the span; unheard
+        # (speech under music/effects) -> the whole cue span is protected as speech.
+        words = [w for s in sents for w in s]
+        mids = np.array([(w["start"] + w["end"]) / 2 for w in words]) if words else np.zeros(0)
+        units, used = [], np.zeros(len(words), bool)
+        for cs, ce, text in parse_srt(srt_path):
+            hit = np.flatnonzero((mids >= cs - 0.5) & (mids <= ce + 0.5))
+            if len(hit):
+                fs = int(min(words[i]["start"] for i in hit) * fps)
+                fe = int(np.ceil(max(words[i]["end"] for i in hit) * fps)) - 1
+                used[hit] = True
+            else:
+                fs, fe = int(cs * fps), int(np.ceil(ce * fps)) - 1
+                word_mask[fs:min(n, fe + 1)] = True
+            units.append([fs, min(n - 1, fe), text])
+            cues_out.append((fs, min(n - 1, fe), text, bool(len(hit))))
+        k = 0
+        for s in sents:  # ASR speech outside every subtitle line stays protected, as its own unit
+            idx = list(range(k, k + len(s)))
+            k += len(s)
+            if not used[idx].any():
+                units.append([int(s[0]["start"] * fps), min(n - 1, int(np.ceil(s[-1]["end"] * fps)) - 1),
+                              " ".join(w["word"] for w in s)])
+        units.sort()
+        merged = []
+        for u in units:  # overlapping units merge into one
+            if merged and u[0] <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], u[1])
+                merged[-1][2] += " " + u[2]
+            else:
+                merged.append(u)
+        words_of = lambda t: {x for x in re.findall(r"[a-z']+", t.lower()) if x not in STOPWORDS and len(x) > 1}
+        content = [words_of(u[2]) for u in merged]
+        df = {}
+        for c in content:
+            for t in c:
+                df[t] = df.get(t, 0) + 1
+        raw = np.array([sum(np.log((1 + len(merged)) / (1 + df[t])) + 1 for t in c) for c in content])
+        imp = rank_fn(raw)(raw)
+        sent_mask[:] = False
+        sentences = []
+        for (fs, fe, text), im in zip(merged, imp):
+            sent_mask[fs:fe + 1] = True
+            sentences.append((fs, fe, float(im), text))
     gaps = [b[0] - a[1] for a, b in zip(sentences[:-1], sentences[1:]) if 0 < b[0] - a[1] < 3 * fps]
     breath = int(np.clip(np.median(gaps) if gaps else fps / 2, 0.4 * fps, 1.0 * fps))
     bmask = np.zeros(n, bool)
@@ -335,7 +383,25 @@ def speech_layers(words_path, n, fps):
             units[-1] = (u0, f1, f"{uw} {w}", uk)
         else:
             units.append((f0, f1, w, k))
-    return word_mask, sentences, sent_mask, bmask, breath, filler_mask, units
+    return word_mask, sentences, sent_mask, bmask, breath, filler_mask, units, cues_out
+
+
+def parse_srt(path):
+    """[(start_s, end_s, text)] from an SRT file; strips tags and joins lines."""
+    txt = Path(path).read_text(encoding="utf-8-sig", errors="replace").replace("\r", "")
+    cues = []
+    for blk in txt.strip().split("\n\n"):
+        ls = [x for x in blk.strip().split("\n") if x.strip()]
+        m = next((re.match(r"(\d+):(\d+):(\d+)[,.](\d+)\s*-->\s*(\d+):(\d+):(\d+)[,.](\d+)", x) for x in ls
+                  if "-->" in x), None)
+        if not m:
+            continue
+        t = [int(x) for x in m.groups()]
+        s = t[0] * 3600 + t[1] * 60 + t[2] + t[3] / 1000
+        e = t[4] * 3600 + t[5] * 60 + t[6] + t[7] / 1000
+        text = " ".join(x for x in ls[ls.index(next(x for x in ls if "-->" in x)) + 1:])
+        cues.append((s, e, re.sub(r"<[^>]+>|\{[^}]+\}", "", text).strip()))
+    return cues
 
 
 def credits_mask(dark, fps):
@@ -350,7 +416,7 @@ def credits_mask(dark, fps):
 
 
 # --- 2. CASCADE (the liftable core) ------------------------------------------
-def cascade(F, fps, stop_fraction, words_path=None):
+def cascade(F, fps, stop_fraction, words_path=None, srt_path=None):
     """Greedy, lazy-re-evaluated seam removal. Returns the nested removal order."""
     g, d, shot, subj = F["g"], F["d"], F["shot"], F["subj"]
     n = len(d)
@@ -358,12 +424,16 @@ def cascade(F, fps, stop_fraction, words_path=None):
 
     rank_d = make_rank_d(F)
     rank_l = rank_fn(F["rms_db"])
+    cues = []
     if words_path and Path(words_path).exists():
-        word_mask, sentences, sent_mask, breath, breath_len, filler_mask, fillers = \
-            speech_layers(words_path, n, fps)
-        src = "speech"
-        print(f"[cascade] speech: {len(sentences)} sentences, words cover {word_mask.mean():.0%} of frames, "
+        word_mask, sentences, sent_mask, breath, breath_len, filler_mask, fillers, cues = \
+            speech_layers(words_path, n, fps, srt_path)
+        src = "speech+subtitles" if cues else "speech"
+        print(f"[cascade] {src}: {len(sentences)} units, speech covers {word_mask.mean():.0%} of frames, "
               f"{len(fillers)} fillers/repeats: " + ", ".join(f"{w}({k[0]})" for _, _, w, k in fillers[:12]))
+        if cues:
+            print(f"[cascade] subtitles: {len(cues)} lines, {sum(c[3] for c in cues)} heard by ASR, "
+                  f"{sum(not c[3] for c in cues)} protected from subtitle timing alone")
     else:
         breath, breath_len = breathing_mask(F["rms_db"], fps)
         word_mask, sentences, sent_mask, src = np.zeros(n, bool), [], np.zeros(n, bool), "loudness"
@@ -578,7 +648,7 @@ def cascade(F, fps, stop_fraction, words_path=None):
     print(f"[cascade] {len(order)} seams removed down to {kept/n:.0%} ({time.time()-t0:.0f}s)")
     return order, dict(subj_rank=subj_rank, loud_rank=loud_rank, credits=credits,
                        breath=breath, shot_start=shot_start, shot_end=shot_end,
-                       word_mask=word_mask & ~filler_mask, sentences=sentences, fillers=fillers)
+                       word_mask=word_mask & ~filler_mask, sentences=sentences, fillers=fillers, cues=cues)
 
 
 def keep_mask(order, n, fraction):
@@ -665,6 +735,12 @@ def report(order, F, aux, fps, fractions, path):
         info_line = (f"   information: real-word frames kept {keep[wm].mean() if wm.any() else 1:.0%}; sentences "
                      f"{whole_kept} intact / {len(clipped)} with real words cut / {whole_gone} removed whole; "
                      f"fillers/repeats removed {len(fl_gone)}/{len(fl)}" + (f" ({', '.join(fl_gone[:8])})" if fl_gone else ""))
+        if aux.get("cues"):
+            cl = [(keep[a:b + 1].mean(), t) for a, b, t, _ in aux["cues"]]
+            lost = [t for k, t in cl if k < 0.2]
+            info_line += (f"\n   subtitle lines: {sum(k >= 0.95 for k, _ in cl)} intact / "
+                          f"{sum(0.2 <= k < 0.95 for k, _ in cl)} partly cut / {len(lost)} lost"
+                          + (f" ({' | '.join(lost[:6])})" if lost else ""))
         lines += [f"== keep {fr:.0%}: {keep.sum()/fps/60:.2f} min, {len(active)} seams, {len(joins)} joins "
                   f"({len(joins)/(keep.sum()/fps/60):.1f}/min); story kept {story_kept:.0%}, "
                   f"credits kept {keep[aux['credits']].mean() if aux['credits'].any() else 0:.0%}",
@@ -800,6 +876,7 @@ def main():
     ap.add_argument("--fractions", type=float, nargs="+", default=DEFAULT_FRACTIONS)
     ap.add_argument("--stop", type=float, default=0.2)
     ap.add_argument("--no-render", action="store_true")
+    ap.add_argument("--subs", help="subtitle file (SRT) - authoritative dialogue for the plot layer")
     args = ap.parse_args()
     src = Path(args.src)
     stem = src.stem
@@ -808,7 +885,7 @@ def main():
     info = probe(src)
     info["src"] = src
     F = analyze(src, info, outdir / "features.npz")
-    order, aux = cascade(F, info["fps"], args.stop, outdir / "words.json")
+    order, aux = cascade(F, info["fps"], args.stop, outdir / "words.json", args.subs)
     (outdir / "order.json").write_text(json.dumps(order), encoding="utf-8")
     report(order, F, aux, info["fps"], args.fractions, outdir / "report.txt")
     viewer(order, F, aux, info, args.fractions, outdir, stem)
