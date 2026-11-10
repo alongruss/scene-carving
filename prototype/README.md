@@ -1,6 +1,6 @@
 # PROTOTYPE: carve-only feasibility (throwaway)
 
-> This lives on the `prototype/carve-only` branch only. It is not production code. Validated decisions get folded into [docs/DEFINITION.md](../docs/DEFINITION.md) on `master`.
+> This lives on the `prototype/carve-only` branch only. It is not production code. Validated decisions get folded into [docs/DEFINITION.md](../docs/DEFINITION.md) on `main`.
 
 ## Question
 
@@ -96,7 +96,7 @@ py -m venv .venv && .venv/Scripts/python -m pip install numpy        # once
 - Some cuts are too abrupt, landing right when speech ends with no breathing room.
 - Crossfades are better than the rough jump we had earlier, and better synthesis could improve this further in the future.
 - Always create a 30% version.
-- Research PatchMatch-style patching from other times: see `docs/research/patching-from-other-times.md` on `master`.
+- Research PatchMatch-style patching from other times: see `docs/research/patching-from-other-times.md` on `main`.
 
 **Changes:**
 - **Every seam is tagged with a heal strategy** (`STRATEGIES`): `trim-at-cut` (lands on an existing cut), `dissolve` (6-frame cross-dissolve of original frames), `hard` (a mid-shot jump between near-identical frames, rank below 0.5, so a dissolve would only ghost) or `edge-trim`.
