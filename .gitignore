@@ -1,0 +1,30 @@
+# Films and derived media never go into git
+*.mp4
+*.mkv
+*.mov
+*.avi
+*.m4v
+*.webm
+*.wav
+*.flac
+*.mp3
+*.aac
+*.m4a
+media/
+cache/
+analysis/
+renders/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
