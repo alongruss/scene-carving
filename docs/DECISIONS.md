@@ -72,6 +72,15 @@ The user watched 90%, 75% and 60% carvings of *Tears of Steel*, made by the thro
 | 50 | Scoring inputs | "we might also want to help score using motion vectors?" This means using motion, split into camera vs. subject motion, in the noticeability of a join. |
 | 51 | Visual healing for unavoidable same-camera cuts (options: Short cross-dissolve · Motion-interpolated morph · Dissolve live, morph in render · No healing, just avoid) | **Short cross-dissolve**: about 6 frames blending original frames, the picture equivalent of the audio crossfade. ⟲ This amends #33: blending is allowed, but generating or interpolating pixels is still not. |
 
+## Prototype feedback: after watching iteration 2
+
+| # | Observation or question | Answer / decision |
+|---|---|---|
+| 52 | Seam handling | "we might want to tag seams with a removal/patch strategy". Every seam carries a **heal strategy** for its join: `trim-at-cut`, `dissolve`, `hard` (a mid-shot jump between near-identical frames) or `edge-trim`. `patch` is reserved. |
+| 53 | Abrupt cuts after lines | "some cuts are a bit too abrupt like right when speech ends without "breathing room"". **Breathing room** after sound or speech ends, and a shorter breath before it starts, is protected. Its length is learned from the film's pause statistics (consistent with #35). |
+| 54 | Healing quality | "crossfades are better then the rough jump we had earlier, we might improve even more in the future with better synthesis". Better healing is a future direction. The question "is PatchMatch a relevant analogue?" was researched: [research/patching-from-other-times.md](research/patching-from-other-times.md). |
+| 55 | Review lengths | "always create a 30% version". The standard review renders are **90 / 75 / 60 / 30%**. |
+
 ## Resolved tensions
 
 - **"Keep the plot untouched" (#40) vs. "just go" (#7) and "slider can go all the way" (#45).** There is no plot floor. Plot is protected *by ordering*: plot-bearing seams carry the highest importance and are removed last. The timeline shows exactly when plot starts to be lost.

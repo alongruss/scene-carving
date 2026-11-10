@@ -42,6 +42,7 @@
 | Honest "time saved" UX | Overcast Smart Speed (L §1) | Show original length, retimed length and what was removed. |
 | Decoupled cuts | J/L-cut practice; UnderScore's decoupled music edit points (A §5) | Audio and picture lose the same time at different positions, but only where nothing sync-critical lies in between. |
 | Join smoothing | Short crossfades (standard practice) | Cheap, a few milliseconds, safe for near real time. No time-scale modification and no synthesis. |
+| Picture join healing | Cross-dissolve (decision #51); graph-cut video transitions (Kwatra 2003 §7A; Liao, Joshi & Hoppe 2013/2015; shift-maps), see [patching-from-other-times.md](patching-from-other-times.md) | `dissolve` now. A candidate `patch` strategy uses a per-pixel switch time between the same two handle streams. PatchMatch acts as a jump-cut *scorer*, not the heal. |
 | Validation | SyncNet, Synchformer; EBU R37 (+40/−60 ms), ITU-R BT.1359 (A §9) | Hard-fail lip-sync check on rendered on-screen dialogue. |
 
 ### Evaluation

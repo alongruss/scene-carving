@@ -103,6 +103,13 @@ The cascade is **re-run** (not the analysis) when human marks or the pace knob c
 ### 3.5 Render
 
 - Cuts at frame accuracy from the original media, with **short, cheap audio crossfades** at joins. Same-camera picture joins get a **short cross-dissolve** of original frames (about 6 frames). Both use handles from the removed material, so length and sync stay exact.
+- **Heal strategies.** Every seam is tagged with how its join is healed, and the render applies the tag of each final join:
+  - `trim-at-cut`: the join lands on an existing cut, so it is a plain cut.
+  - `dissolve`: a short cross-dissolve of original frames.
+  - `hard`: a mid-shot jump between near-identical frames, where a dissolve would only ghost.
+  - `edge-trim`: the film's start or end.
+  - `patch` (candidate): a per-pixel switch-time graph cut between the same two handle streams, i.e. a dissolve with a per-pixel alpha of 0 or 1. See [research/patching-from-other-times.md](research/patching-from-other-times.md).
+- **Standard review renders:** 90 / 75 / 60 / 30% of the original length.
 - Outputs:
   - the **shortened video file**, for personal use;
   - a **removal report**: every removed seam with time range, kind, scale, scores and the reason it went.
@@ -134,6 +141,7 @@ A decoupled cut is the automatic version of an editor's J-cut or L-cut. An audio
 
 - **Pause floors, classes and rank order are learned from the film's own pause statistics.** Research norms (about 200 ms between speakers, about 250 ms within one speaker, trimodal pause classes, rank-order preservation) serve only as reference and fallback.
 - **Dead air is more removable but is still a director's choice.** It is scored, never removed by rule.
+- **Breathing room.** The frames right after speech or sound ends, and a shorter breath before it starts, are protected so lines don't get clipped. The length is learned from the film's pause statistics; the prototype's loudness stand-in found 0.62 s on *Tears of Steel*.
 - **Duration as intent:** a hold that is unusually long *for this film* scores as emphasis.
 - **Spread** is part of the cost, not a separate pass. It distributes removals so the *relative* timing of the film survives. Shortening one long pause while its neighbours stay intact can change a scene's meaning.
 - **Scene band:** scenes compress by moderately different amounts. On top of that, plot-irrelevant parts and whole scenes can go when their scores allow.

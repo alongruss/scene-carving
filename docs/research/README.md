@@ -10,6 +10,7 @@ A prior-art scan for Liquid Retime: seam carving in the time domain for finished
 | [video-and-editing.md](video-and-editing.md) | Seam carving lineage, temporal retargeting and video condensation, adaptive fast-forward and hyperlapse, summarization and trailers, computational editing and hiding cuts, shot/scene/speaker detection, perception and film theory. |
 | [audio-and-speech.md](audio-and-speech.md) | Time-scale modification (reference only), non-uniform speech compression, pause and gap floors, silence and filler tools, music retargeting and beat tracking, cinematic stem separation (analysis only), the speech timing pipeline, A/V sync thresholds, GPU support on the development laptop. |
 | [landscape.md](landscape.md) | Existing products, evidence on pacing and attention, ethics and law of altering films, narrative and affect understanding, local models on modest hardware, evaluation methods, legal test corpus, interchange formats. |
+| [patching-from-other-times.md](patching-from-other-times.md) | Follow-up scan, also 2026-11-10: is PatchMatch an analogue? Healing jump cuts with existing pixels from other times: bidirectional similarity, shift-maps, graph-cut video transitions, video inpainting, and diffusion as contrast. Proposes the `patch` heal strategy. |
 
 Each doc ends with a **terminology** list and a **gap analysis**. The project's own vocabulary lives in [../GLOSSARY.md](../GLOSSARY.md).
 
