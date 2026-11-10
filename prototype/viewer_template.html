@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Liquid Retime Prototype</title>
+<style>
+:root{--bg:#f6f5f1;--fg:#1d1d1b;--muted:#6b6a65;--line:#dedcd5;--card:#ffffff;--accent:#c2410c;--accent-soft:rgba(194,65,12,.16);--heat:29,29,27}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141413;--fg:#ecebe6;--muted:#9c9a92;--line:#2e2d2a;--card:#1c1c1a;--accent:#f97316;--accent-soft:rgba(249,115,22,.2);--heat:236,235,230}}
+:root[data-theme="dark"]{--bg:#141413;--fg:#ecebe6;--muted:#9c9a92;--line:#2e2d2a;--card:#1c1c1a;--accent:#f97316;--accent-soft:rgba(249,115,22,.2);--heat:236,235,230}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:1240px;margin:0 auto;padding:28px 16px 72px}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:15px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:32px 0 10px;font-weight:600}
+.lede{color:var(--muted);max-width:880px;margin:0 0 20px}
+.banner{display:inline-block;font-size:12px;font-weight:600;letter-spacing:.05em;color:var(--accent);border:1px solid var(--accent);border-radius:4px;padding:1px 6px;margin-bottom:10px}
+.grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:20px}
+@media (max-width:860px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+video{width:100%;border-radius:6px;background:#000;display:block}
+.row{display:flex;align-items:center;gap:12px;margin-top:12px;flex-wrap:wrap}
+input[type=range]{flex:1;min-width:180px;accent-color:var(--accent)}
+.big{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+dl{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:0}
+dt{color:var(--muted)}dd{margin:0;font-variant-numeric:tabular-nums}
+.changed{background:var(--accent-soft);border-radius:4px;padding:0 4px}
+canvas{width:100%;display:block;border:1px solid var(--line);border-radius:6px;background:var(--card);cursor:pointer}
+#zoom{margin-top:8px}
+.legend{font-size:13px;color:var(--muted);margin:6px 0 0}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tabs button,.steps button,.btn{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:6px;padding:6px 12px;cursor:pointer}
+.tabs button.on{border-color:var(--accent);color:var(--accent)}
+.steps{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.steps button.next{border-color:var(--accent);background:var(--accent-soft)}
+.steps button.done{opacity:.5}
+table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:4px 8px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:500}
+tr.here td{background:var(--accent-soft)}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<main>
+<div class="banner">PROTOTYPE — THROWAWAY</div>
+<h1>Liquid Retime: carve-only seam carving in time</h1>
+<p class="lede"><b>Question:</b> can a film be shortened by removing only original frames and audio, with no synthesis and no speed change, before anyone notices? Every frame below is ranked by how cheap it is to cut (signal-only scores: motion, loudness, the discontinuity a cut would create, spread). Drag <b>Target length</b> and the carved version plays immediately: removed seams are skipped live, like the slider in liquid rescale. The preview has no crossfades and seeks can stutter, so judge the result from the real renders at the bottom.</p>
+
+<section class="grid">
+  <div class="card">
+    <video id="v" controls preload="auto" src="proxy.mp4"></video>
+    <div class="row">
+      <label for="len" class="muted">Target length</label>
+      <input type="range" id="len" min="20" max="100" step="0.5" value="100">
+      <span class="big" id="lenOut"></span>
+    </div>
+    <div class="row">
+      <label><input type="checkbox" id="skip" checked> Play carved (skip removed seams)</label>
+      <button class="btn" id="back5">−5 s</button>
+      <button class="btn" id="fwd5">+5 s</button>
+    </div>
+  </div>
+  <div class="card"><dl id="state"></dl></div>
+</section>
+
+<h2>Seam map</h2>
+<canvas id="map" height="150"></canvas>
+<canvas id="zoom" height="150"></canvas>
+<p class="legend">Rows, top to bottom: <b>motion</b> · <b>loudness</b> (both ranked within this film) · <b>shot cuts</b> · <b>removal order</b> (darker means removed earlier in the cascade) · <b>removed at this length</b> (orange). The top strip is the whole film; the strip under it is ±8 s around the playhead, one column per frame. Click either strip to seek.</p>
+
+<h2>Walkthroughs</h2>
+<div class="tabs" id="tabs"></div>
+<div class="card" style="margin-top:10px"><p id="tabDesc" style="margin:0"></p><div class="steps" id="steps"></div></div>
+
+<h2>Seams near the playhead (active at this length)</h2>
+<div class="card"><table id="near"></table></div>
+
+<h2>Real renders (frame-accurate, crossfaded)</h2>
+<div class="card" id="renders"></div>
+</main>
+
+<script>
+const DATA = /*DATA*/null;
+
+/* ---- pure module: liftable logic, no DOM ---- */
+const Retime = (() => {
+  const removalRank = (order, n) => {
+    const r = new Int32Array(n).fill(0x7fffffff);
+    order.forEach(([a, b], i) => { for (let f = a; f <= b; f++) r[f] = i; });
+    return r;
+  };
+  const prefixFor = (order, n, keepFrac) => {
+    const target = n - Math.round(keepFrac * n);
+    let cum = 0, k = 0;
+    while (k < order.length && cum < target) { cum += order[k][1] - order[k][0] + 1; k++; }
+    return k;
+  };
+  const carve = (rank, k, fps, cuts, order, kinds) => {
+    const n = rank.length, removed = new Uint8Array(n), nextKept = new Int32Array(n), keptBefore = new Int32Array(n + 1);
+    for (let f = 0; f < n; f++) { removed[f] = rank[f] < k ? 1 : 0; keptBefore[f + 1] = keptBefore[f] + (1 - removed[f]); }
+    let nx = n;
+    for (let f = n - 1; f >= 0; f--) { if (!removed[f]) nx = f; nextKept[f] = nx; }
+    let joins = 0;
+    for (let f = 1; f < n; f++) if (removed[f - 1] && !removed[f] && keptBefore[f] > 0) joins++;
+    const kindCount = Object.fromEntries(kinds.map(x => [x, 0]));
+    for (let i = 0; i < k; i++) kindCount[kinds[order[i][2]]]++;
+    const bounds = cuts.concat([n]);
+    let alive = 0, aliveFrames = 0;
+    for (let s = 0; s < cuts.length; s++) {
+      const kept = keptBefore[bounds[s + 1]] - keptBefore[bounds[s]];
+      if (kept > 0) { alive++; aliveFrames += kept; }
+    }
+    const w = Math.round(10 * fps); let maxLocal = 0, acc = 0;
+    for (let f = 0; f < n; f++) { acc += removed[f]; if (f >= w) acc -= removed[f - w]; if (f >= w - 1) maxLocal = Math.max(maxLocal, acc / w); }
+    const kept = keptBefore[n];
+    return { removed, nextKept, keptBefore, joins, kindCount, alive, asl: aliveFrames / Math.max(alive, 1) / fps,
+             kept, maxLocal, seams: k, joinsPerMin: joins / Math.max(kept / fps / 60, 1e-9) };
+  };
+  return { removalRank, prefixFor, carve };
+})();
+
+/* ---- page shell ---- */
+const D = DATA, fps = D.fps, n = D.n, order = D.order;
+const rank = Retime.removalRank(order, n);
+const $ = id => document.getElementById(id);
+const v = $("v"), lenEl = $("len");
+const fmt = s => { s = Math.max(0, s); const m = Math.floor(s / 60); return `${m}:${(s % 60).toFixed(1).padStart(4, "0")}`; };
+const heat = getComputedStyle(document.documentElement).getPropertyValue("--heat").trim();
+const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
+let S = null, prev = null;
+
+function update() {
+  const keep = +lenEl.value / 100;
+  const k = Retime.prefixFor(order, n, keep);
+  prev = S; S = Retime.carve(rank, k, fps, D.cuts, order, D.kinds);
+  $("lenOut").textContent = `${(+lenEl.value).toFixed(1)}%`;
+  renderState(); drawMap(); drawZoom(); renderNear();
+}
+
+function renderState() {
+  const f = Math.min(n - 1, Math.floor(v.currentTime * fps));
+  const diff = (a, b) => prev && a !== b ? " changed" : "";
+  const rows = [
+    ["Original", fmt(n / fps)],
+    ["Carved", `<span class="big${diff(prev && prev.kept, S.kept)}">${fmt(S.kept / fps)}</span> <span class="muted">(${(100 * S.kept / n).toFixed(1)}%)</span>`],
+    ["Seams removed", `<span class="${diff(prev && prev.seams, S.seams)}">${S.seams}</span> of ${order.length} in the cascade`],
+    ["Joins", `${S.joins} <span class="muted">(${S.joinsPerMin.toFixed(1)} per carved minute)</span>`],
+    ["By kind", D.kinds.map(x => `${x} ${S.kindCount[x]}`).join(" · ")],
+    ["Shots kept", `${S.alive} of ${D.cuts.length}`],
+    ["Avg shot length", `${(n / fps / D.cuts.length).toFixed(2)} s → ${S.asl.toFixed(2)} s`],
+    ["Max local removal", `${(100 * S.maxLocal).toFixed(0)}% <span class="muted">in any 10 s</span>`],
+    ["Playhead", `orig ${fmt(f / fps)} · carved ${fmt(S.keptBefore[f] / fps)}${S.removed[f] ? ' · <span class="changed">inside a removed seam</span>' : ""}`],
+  ];
+  $("state").innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("");
+}
+
+function setupCanvas(c) {
+  const dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight || 150;
+  c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+  const ctx = c.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+  return [ctx, w, h];
+}
+const ROWS = [["motion", 0, 28], ["loud", 30, 28], ["cuts", 60, 16], ["order", 78, 34], ["removed", 114, 30]];
+
+function drawRange(c, f0, f1) {
+  const [ctx, w] = setupCanvas(c), span = f1 - f0, per = span / w;
+  for (let x = 0; x < w; x++) {
+    const a = Math.floor(f0 + x * per), b = Math.max(a + 1, Math.floor(f0 + (x + 1) * per));
+    let m = 0, l = 0, cnt = 0, minR = 0x7fffffff, rem = 0, cut = false;
+    for (let f = Math.max(0, a); f < Math.min(n, b); f++) {
+      m += D.motion[f]; l += D.loud[f]; cnt++; if (rank[f] < minR) minR = rank[f]; rem += S.removed[f];
+    }
+    if (!cnt) continue;
+    ctx.fillStyle = `rgba(${heat},${(m / cnt / 99).toFixed(3)})`; ctx.fillRect(x, 0, 1, 28);
+    ctx.fillStyle = `rgba(${heat},${(l / cnt / 99).toFixed(3)})`; ctx.fillRect(x, 30, 1, 28);
+    if (minR < 0x7fffffff) { ctx.fillStyle = `rgba(${heat},${(1 - minR / order.length).toFixed(3)})`; ctx.fillRect(x, 78, 1, 34); }
+    if (rem) { ctx.fillStyle = accent; ctx.globalAlpha = rem / cnt; ctx.fillRect(x, 114, 1, 30); ctx.globalAlpha = 1; }
+  }
+  ctx.fillStyle = `rgba(${heat},.85)`;
+  for (const cf of D.cuts) if (cf >= f0 && cf < f1) ctx.fillRect(Math.floor((cf - f0) / per), 60, 1, 16);
+  const ph = v.currentTime * fps;
+  if (ph >= f0 && ph <= f1) { ctx.fillStyle = accent; ctx.fillRect(Math.floor((ph - f0) / per), 0, 2, 150); }
+}
+const zoomSpan = () => Math.round(8 * fps);
+function drawMap() { drawRange($("map"), 0, n); }
+function drawZoom() { const c = Math.floor(v.currentTime * fps); drawRange($("zoom"), c - zoomSpan(), c + zoomSpan()); }
+for (const [id, range] of [["map", () => [0, n]], ["zoom", () => { const c = Math.floor(v.currentTime * fps); return [c - zoomSpan(), c + zoomSpan()]; }]]) {
+  $(id).addEventListener("click", e => { const r = $(id).getBoundingClientRect(), [f0, f1] = range(); seekFrame(f0 + (e.clientX - r.left) / r.width * (f1 - f0)); });
+}
+
+function renderNear() {
+  const f = Math.floor(v.currentTime * fps), w = Math.round(10 * fps);
+  const rows = [];
+  for (let i = 0; i < S.seams; i++) { const o = order[i]; if (o[1] >= f - w && o[0] <= f + w) rows.push(o); }
+  rows.sort((x, y) => x[0] - y[0]);
+  $("near").innerHTML = "<tr><th>Original time</th><th>Length</th><th>Kind</th><th>Rank in cascade</th><th>Cost/frame</th><th>Visual join</th><th>Audio join</th><th>Content</th><th>Spread</th><th>Flash</th></tr>" +
+    (rows.length ? rows.map(o => `<tr class="${f >= o[0] && f <= o[1] ? "here" : ""}"><td>${fmt(o[0] / fps)}</td><td>${o[1] - o[0] + 1} f (${((o[1] - o[0] + 1) / fps).toFixed(2)} s)</td><td>${D.kinds[o[2]]}</td><td>${order.indexOf(o) + 1}</td><td>${o[3]}</td><td>${o[4]}</td><td>${o[5]}</td><td>${o[6]}</td><td>${o[7]}</td><td>${o[8]}</td></tr>`).join("")
+      : `<tr><td colspan="10" class="muted">No seams removed within ±10 s at this length.</td></tr>`);
+}
+
+function seekFrame(f) { v.currentTime = Math.max(0, Math.min(n - 1, f)) / fps + 0.001; }
+let lastUi = 0;
+function onFrame(now, meta) {
+  if ($("skip").checked && S && !v.paused) {
+    const f = Math.floor(meta.mediaTime * fps + 1e-3);
+    if (f < n && S.removed[f]) { const nk = S.nextKept[f]; if (nk >= n) v.pause(); else v.currentTime = (nk + 0.05) / fps; }
+  }
+  if (now - lastUi > 120) { lastUi = now; renderState(); drawZoom(); drawMap(); renderNear(); }
+  v.requestVideoFrameCallback(onFrame);
+}
+if ("requestVideoFrameCallback" in HTMLVideoElement.prototype) v.requestVideoFrameCallback(onFrame);
+v.addEventListener("seeked", () => { renderState(); drawZoom(); drawMap(); renderNear(); });
+lenEl.addEventListener("input", update);
+$("back5").onclick = () => { v.currentTime -= 5; };
+$("fwd5").onclick = () => { v.currentTime += 5; };
+window.addEventListener("resize", () => { drawMap(); drawZoom(); });
+
+/* ---- walkthroughs ---- */
+function activeAt(keep) { const k = Retime.prefixFor(order, n, keep); return order.slice(0, k); }
+function mostExpensive(keep) { return activeAt(keep).reduce((b, o) => (!b || o[3] > b[3] ? o : b), null); }
+function densest(keep) {
+  const k = Retime.prefixFor(order, n, keep), s = Retime.carve(rank, k, fps, D.cuts, order, D.kinds), w = Math.round(10 * fps);
+  let best = 0, at = 0, acc = 0;
+  for (let f = 0; f < n; f++) { acc += s.removed[f]; if (f >= w) acc -= s.removed[f - w]; if (acc > best) { best = acc; at = f - w; } }
+  return Math.max(0, at);
+}
+const setLen = p => () => { lenEl.value = p; update(); };
+const seekTo = fn => () => { const f = fn(); seekFrame(Math.max(0, f - Math.round(3 * fps))); };
+const play = () => { $("skip").checked = true; v.play(); };
+const firstSeam = keep => { const a = activeAt(keep); return a.length ? Math.min(...a.map(o => o[0])) : 0; };
+const W = [
+  { t: "1 · What goes first (keep 95%)", d: "The cheapest 5% of the film. Expect black frames, fades, static holds and quiet moments. Does anything you'd miss go this early?",
+    s: [["Set length 95%", setLen(95)], ["Jump 3 s before the first seam", seekTo(() => firstSeam(.95))], ["Play carved", play]] },
+  { t: "2 · Gentle (keep 90%)", d: "10% shorter. Jump to the most expensive seam still in use at this length. That's the one most likely to show.",
+    s: [["Set length 90%", setLen(90)], ["Jump to the most expensive seam", seekTo(() => mostExpensive(.9)[0])], ["Play carved", play]] },
+  { t: "3 · Moderate (keep 75%)", d: "A quarter shorter. Check the riskiest seam, then the area where carving is densest. Does the rhythm still feel like the original?",
+    s: [["Set length 75%", setLen(75)], ["Jump to the most expensive seam", seekTo(() => mostExpensive(.75)[0])], ["Play carved", play], ["Jump to the densest 10 s", seekTo(() => densest(.75) + Math.round(3 * fps))], ["Play carved", play]] },
+  { t: "4 · Strong (keep 60%)", d: "40% shorter. This is where signal-only scoring should start failing: dialogue and music cut mid-phrase, visible jumps. Note where it breaks.",
+    s: [["Set length 60%", setLen(60)], ["Jump to the most expensive seam", seekTo(() => mostExpensive(.6)[0])], ["Play carved", play], ["Jump to the densest 10 s", seekTo(() => densest(.6) + Math.round(3 * fps))], ["Play carved", play]] },
+  { t: "5 · Nested check", d: "Every shorter version contains every longer one. Park on a scene, then drag the slider down slowly and watch the orange fill in. It only grows, it never moves.",
+    s: [["Set length 100%", setLen(100)], ["Jump to 03:00", () => seekFrame(180 * fps)], ["Set 90%", setLen(90)], ["Set 75%", setLen(75)], ["Set 60%", setLen(60)], ["Set 40%", setLen(40)]] },
+];
+function showTab(i) {
+  document.querySelectorAll("#tabs button").forEach((b, j) => b.classList.toggle("on", i === j));
+  $("tabDesc").textContent = W[i].d;
+  const box = $("steps"); box.innerHTML = "";
+  setLen(100)(); v.pause();
+  W[i].s.forEach(([label, fn], j) => {
+    const b = document.createElement("button"); b.textContent = `${j + 1}. ${label}`; if (j === 0) b.classList.add("next");
+    b.onclick = () => { fn(); b.classList.remove("next"); b.classList.add("done"); const nb = box.children[j + 1]; if (nb) nb.classList.add("next"); };
+    box.appendChild(b);
+  });
+}
+W.forEach((w, i) => { const b = document.createElement("button"); b.textContent = w.t; b.onclick = () => showTab(i); $("tabs").appendChild(b); });
+
+$("renders").innerHTML = D.renders.map((r, i) => `<a href="${r}">${r}</a> <span class="muted">keep ${Math.round(D.fractions[i] * 100)}%</span>`).join("<br>") +
+  `<p class="muted" style="margin:8px 0 0">Open these in a normal player to judge carving properly. They include 10 ms crossfades and no seek stutter.</p>`;
+
+update(); showTab(0);
+</script>
+</body>
+</html>

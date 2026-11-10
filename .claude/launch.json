@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "carve-viewer",
+      "runtimeExecutable": "D:\\Experiments\\Liquid Retime\\.venv\\Scripts\\python.exe",
+      "runtimeArgs": ["prototype/serve.py", "renders/tears_of_steel_720p", "8765"],
+      "port": 8765
+    }
+  ]
+}
