@@ -1,8 +1,11 @@
 # Liquid Retime: definition
 
-> **Status:** agreed definition v0, 2026-11-10, the outcome of two grilling sessions and a prior-art scan.
+> **Status:** definition v0.2, 2026-11-10.
+> - It was agreed in two grilling sessions and a prior-art scan.
+> - It was then refined by seven iterations of a throwaway prototype on branch `prototype/carve-only` (decisions #48–#64). Prototype-validated points are marked as such.
+>
 > Decisions and their history: [DECISIONS.md](DECISIONS.md). Vocabulary: [GLOSSARY.md](GLOSSARY.md). Prior art: [research/](research/README.md).
-> No code exists yet. This document defines *what* we are building, not *how* it is implemented.
+> This document defines *what* we are building. The prototype is an experiment, not the implementation.
 
 ## 1. One-line definition
 

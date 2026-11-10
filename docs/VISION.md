@@ -17,7 +17,8 @@ Pauses, holds and pacing are not slack by default. A pause is a pause for a purp
 - Keeps the **relative rhythm**. Removals are spread out, the film's shot-length signature, act proportions and pause rank order are preserved, and long holds still feel long *relative to the rest of the film*.
 - Keeps the **mood**. The arousal and valence curve and the music's continuity survive.
 - Keeps the **plot**. Plot-bearing material is the last thing to go.
-- Keeps it **invisible**. It carves only, never synthesizes, never changes speed or pitch, and never breaks lip-sync.
+- Keeps the **information**. Spoken words are never cut into. Lines (taken from subtitles when available, anchored to the film's audio) go whole, least plot-important first, and only after everything cheaper.
+- Keeps it **invisible**. It carves only, never generates pixels or sound, never changes speed or pitch, and never breaks lip-sync. Joins are softened only by short blends of original material.
 
 ## North star: *2001: A Space Odyssey*
 
@@ -40,12 +41,13 @@ An energy based on motion or dialogue would gut it. If Liquid Retime can shorten
 5. **Human authority** through Protect, Importance level and Force-cut marks in our own timeline UI.
 6. **Fully local**, on modest hardware, as an overnight analysis.
 7. **Honest output**: a rendered file plus a **removal report** of what went and why.
+8. **Release-independent**: subtitles or a screenplay from any release anchor to *this* film's audio, despite offsets, PAL/NTSC drift or added and cut scenes.
 
 ## Non-goals
 
 - Summaries, highlights, trailers or "fast movies". The output stays a whole work in its original order.
 - Uniform or variable acceleration of subjects, and speech speed-up.
-- Any generative or synthetic picture or sound.
+- Any generative or synthetic picture or sound. Short crossfades and dissolves of original material at joins are not generation.
 - Changing the plot, or training an editor that "can change the whole plot".
 - Cloud processing.
 - Distributing altered copies of copyrighted films.
@@ -68,4 +70,9 @@ Liquid Retime is a **personal and open-source tool** that renders files for **pe
 
 ## Who
 
-For now, this is a personal experiment that becomes an open-source tool. It is not a paper or a product yet. The license will be decided when code starts.
+For now, this is a personal experiment on its way to becoming an open-source tool. It is not a paper or a product yet.
+- A throwaway prototype (branch `prototype/carve-only`) has tested the idea end to end on *Tears of Steel* and on public-domain and CC-BY films.
+- What it validated lives in [DEFINITION.md](DEFINITION.md) and [DECISIONS.md](DECISIONS.md).
+- The license will be decided when production code starts.
+
+**Future direction:** lengthening films too ("liquid stretch", the way seam carving can also enlarge images). See [DEFINITION.md §12](DEFINITION.md#12-future-directions).
