@@ -48,7 +48,8 @@ py -m venv .venv && .venv/Scripts/python -m pip install numpy        # once
    The full design needs a cost term that cannot be amortized over seam length.
 6. **The carving shape looks editor-like.** At 90% it removes mostly static holds (163) plus trims at existing cuts (51). By 75%, trims at existing cuts take over (202). Whole shots disappear only from 75% (2 at 75%, 11 at 60%).
 7. **Spread works, but only moderately.** The largest share removed from any 10 s window was 32% at 90%, 57% at 75% and 73% at 60%.
-8. **The rhythm signature degrades smoothly.**
+8. **Renders are exact and in sync.** All three versions rendered in 214 s total, sharing one decode. Lengths are 11:00.5, 9:10.5 and 7:19.6 (90.0%, 75.0%, 59.9%), and audio and video stream lengths match within 10 ms. Joint seams and handle-based crossfades cause no drift.
+9. **The rhythm signature degrades smoothly.**
 
    | Keep | Average shot length | KS distance (log shot length) |
    |---|---|---|
