@@ -82,6 +82,9 @@ The cascade repeatedly removes the cheapest remaining seam and records the order
      - In the prototype the plot score is an IDF stand-in for an LLM.
      - Subject motion only raises the cost of mid-shot joins, never the value of what is removed.
      - On *Tears of Steel* this kept 100% of the words at 30% length.
+   - **Inside a kept sentence, only fillers and repeats may be cut** (um/uh/hmm, a set-off "you know", stutters and false starts).
+     - Each filler unit is cut whole or not at all.
+     - Filler cuts land inside speech, so they are ordered after silent trims.
    - **A visible join is one perceptual event.** Its cost must not be averaged away over a long seam, and extending an existing hole adds no new join.
 2. **Remove** the cheapest seam and append it to the **removal order**.
 3. **Cascade the update:**
@@ -114,7 +117,7 @@ The cascade is **re-run** (not the analysis) when human marks or the pace knob c
   - `dissolve`: a short cross-dissolve of original frames.
   - `hard`: a mid-shot jump between near-identical frames, where a dissolve would only ghost.
   - `edge-trim`: the film's start or end.
-  - `patch` (candidate): a per-pixel switch-time graph cut between the same two handle streams, i.e. a dissolve with a per-pixel alpha of 0 or 1. See [research/patching-from-other-times.md](research/patching-from-other-times.md).
+  - ~~`patch`~~: a per-pixel switch-time graph cut between the same two handle streams ([research](research/patching-from-other-times.md)). **Rejected after a blind bake-off**: it was worst in 7 of 10 cuts, because the per-pixel switch shows as tearing. Better synthesis remains a future direction.
 - **Standard review renders:** 90 / 75 / 60 / 30% of the original length.
 - Outputs:
   - the **shortened video file**, for personal use;

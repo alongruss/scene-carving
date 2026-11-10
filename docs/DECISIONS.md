@@ -87,7 +87,9 @@ The user watched 90%, 75% and 60% carvings of *Tears of Steel*, made by the thro
 |---|---|---|
 | 56 | Words cut before a man walking | "why would you rather cut important words from sentences than cut a man walking … we need to plot score and conversation score to better protect informative scenes … let's better protect information." **Information comes first.** Speech is protected by a conversation score: cutting into a word is very expensive, whole sentences are seams priced by a plot score, and breathing room follows sentence ends. **Motion is not information**; it only makes joins more visible. |
 | 57 | Local speech recognition | Approved download of faster-whisper with the `small.en` model (486 MB), running locally on CPU. |
-| 58 | Healing method | "you can also do the bake-off". A blind bake-off of hard / dissolve / `patch` (graph-cut switch map) / best-pair snap over 11 story mid-shot joins was built. **Result pending the user's picks.** |
+| 58 | Healing method | "you can also do the bake-off". A blind bake-off of hard / dissolve / `patch` (graph-cut switch map) / best-pair snap was built over 11 story mid-shot joins. The result is in #59. |
+| 59 | Bake-off result (the user's blind picks) | Worst picks: patch6 5, hard 2, patch12 1, snap+patch6 1, dissolve6 1, snap+dissolve6 0. The only best pick was hard, once. **Graph-cut `patch` was rejected**: a patch variant was worst in 7 of 10. `dissolve` stays the heal. Snap is not adopted (thin evidence, and it can shift a cut into words). Better synthesis stays a future direction. |
+| 60 | "so what is the current strategy about cutting words that are not plot important?" (options: Fillers and repeats only · Any low-plot word · Whole sentences only) | **Fillers and repeats only.** Fillers (um/uh/hmm, "you know" set off by punctuation) and stutter repeats (a repeated token or a "word..." false start) are cheap seams. They are cut **whole or not at all**. Real words inside a kept sentence are never cut. Verbatim ASR keeps the fillers. |
 
 ## Resolved tensions
 
