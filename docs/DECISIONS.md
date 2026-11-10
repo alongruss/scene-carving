@@ -61,6 +61,17 @@
 | 46 | Keep slightly faster off-screen speech? (re-asked in plain language) | Drop it · Keep it | **Drop it.** Speech always plays at normal speed. |
 | 47 | Cut the mixed soundtrack as-is, or split it into layers? (re-asked in plain language) | Cut the mix as-is · Split and cut layers | **Cut the mix as-is.** Stem separation is used only during analysis. |
 
+## Prototype feedback: after watching the carve-only prototype (iteration 1)
+
+The user watched 90%, 75% and 60% carvings of *Tears of Steel*, made by the throwaway prototype on branch `prototype/carve-only`.
+
+| # | Observation or question | Answer / decision |
+|---|---|---|
+| 48 | End credits survived in the 90% version | "the whole credit section is throwing us off as it is not relevant to story and could be cut completely. note that credits like this are low energy to plot." Titles and credits score near-zero story importance and go first. |
+| 49 | Same-camera cuts inside a shot | "any hard cut video that happens in the middle of the same scene with the same camera and also in a conversation is very noticeable. we should score in a way the prefers trimming scene start or end above jump cutting in the middle." |
+| 50 | Scoring inputs | "we might also want to help score using motion vectors?" This means using motion, split into camera vs. subject motion, in the noticeability of a join. |
+| 51 | Visual healing for unavoidable same-camera cuts (options: Short cross-dissolve · Motion-interpolated morph · Dissolve live, morph in render · No healing, just avoid) | **Short cross-dissolve**: about 6 frames blending original frames, the picture equivalent of the audio crossfade. ⟲ This amends #33: blending is allowed, but generating or interpolating pixels is still not. |
+
 ## Resolved tensions
 
 - **"Keep the plot untouched" (#40) vs. "just go" (#7) and "slider can go all the way" (#45).** There is no plot floor. Plot is protected *by ordering*: plot-bearing seams carry the highest importance and are removed last. The timeline shows exactly when plot starts to be lost.
@@ -73,7 +84,7 @@
 
 | Item | Why |
 |---|---|
-| Any synthesis: frame interpolation, morph cuts, generated or looped ambience, inpainting | #33, #41: carve only |
+| Any synthesis: frame interpolation, morph cuts, generated or looped ambience, inpainting | #33, #41: carve only. Blending original material at joins is allowed: audio crossfades (#43) and short picture dissolves (#51). |
 | Audio time-scale modification, including off-screen speech speed-up | #41, #46 |
 | Separating stems and remixing them in the output | #47 (separation is for analysis only) |
 | Speeding up subject motion | #13: no physics distortion |

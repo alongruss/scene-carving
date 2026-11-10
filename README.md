@@ -15,7 +15,8 @@ Inspired by liquid rescale and [seam carving](https://en.wikipedia.org/wiki/Seam
 
 ## Rules at a glance
 
-- **Carve only.** Liquid Retime never synthesizes, interpolates, loops, time-stretches or remixes. Every output frame and sample exists in the source.
+- **Carve only.** Liquid Retime never generates, interpolates, loops, time-stretches or remixes. Every output frame and sample comes from the source, apart from short blends of original material at joins (audio crossfades and short picture dissolves).
+- **Credits go first, and cuts land at existing cuts.** Mid-shot jump cuts are a last resort. A throwaway prototype on branch `prototype/carve-only` showed this on *Tears of Steel*.
 - **Lip-sync never breaks** and **physics is never distorted**.
 - **Audio is cut from the original mix.** Decoupled audio and picture cuts are allowed only where nothing sync-critical lies between them.
 - **No hand-written per-film rules.** Scores calibrate themselves to each film, and human marks are the only per-film input.

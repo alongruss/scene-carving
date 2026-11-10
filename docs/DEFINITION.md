@@ -10,7 +10,7 @@
 
 ## 2. Principles
 
-1. **Carve only.** Every output frame and audio sample exists in the source. Nothing is synthesized, interpolated, looped, time-stretched or remixed.
+1. **Carve only.** Every output frame and audio sample comes from the source. Nothing is generated, interpolated, looped, time-stretched or remixed. The one exception is short blends of original material at joins: audio crossfades, plus picture cross-dissolves at unavoidable same-camera joins.
 2. **Intent-preserving.** The headline goal is the same film, faster, with the director's intent kept. Pauses, holds and pacing carry meaning, so they are compressed with care rather than flattened.
 3. **Two-axis, multi-layer scoring.** Every seam has a **noticeability** score (the perceptual cost of the new join) and an **importance** score (plot plus mood). Both are built from multiple layers covering picture, dialogue, music and sync. Importance can veto a cheap removal.
 4. **Self-calibrated per film.** All scores and weights are judged against *this* film's own statistics. There are no hand-written per-film rules. Human marks are the only per-film input.
@@ -73,7 +73,10 @@ The cascade repeatedly removes the cheapest remaining seam and records the order
    - the spread penalty from nearby earlier removals;
    - the change it would cause to the rhythm signature.
 
-   Hard-constraint violations make the cost infinite. Weights are self-calibrated per film.
+   Hard-constraint violations make the cost infinite. Weights are self-calibrated per film. Lessons validated with the prototype:
+   - **Mid-shot joins cost far more than trims at existing cuts.** A hard cut inside a same-camera shot, especially in a conversation, is very noticeable. So trimming a shot's or scene's start or end is preferred, and moving subjects near a join raise its cost further. This needs motion split into camera vs. subject motion.
+   - **Titles and credits score near-zero story importance**, so they go first, entirely.
+   - **A visible join is one perceptual event.** Its cost must not be averaged away over a long seam, and extending an existing hole adds no new join.
 2. **Remove** the cheapest seam and append it to the **removal order**.
 3. **Cascade the update:**
    - overlapping seams shrink or disappear and are re-scored;
@@ -99,7 +102,7 @@ The cascade is **re-run** (not the analysis) when human marks or the pace knob c
 
 ### 3.5 Render
 
-- Cuts at frame accuracy from the original media, with **short, cheap audio crossfades** at joins.
+- Cuts at frame accuracy from the original media, with **short, cheap audio crossfades** at joins. Same-camera picture joins get a **short cross-dissolve** of original frames (about 6 frames). Both use handles from the removed material, so length and sync stay exact.
 - Outputs:
   - the **shortened video file**, for personal use;
   - a **removal report**: every removed seam with time range, kind, scale, scores and the reason it went.
@@ -111,7 +114,7 @@ The cascade is **re-run** (not the analysis) when human marks or the pace knob c
 
 | Constraint | Meaning |
 |---|---|
-| **No synthesis** | No frame interpolation, morph cuts, generated or looped ambience, or inpainting. Only original frames and samples. |
+| **No synthesis** | No frame interpolation, morph cuts, generated or looped ambience, or inpainting. Only original frames and samples, which may be *blended* at a join: a short audio crossfade, or an approximately 6-frame cross-dissolve at an unavoidable same-camera picture join. |
 | **No speed or pitch change of audio** | No time-scale modification. Speech always plays at its original speed. |
 | **Carve the original mix** | Audio seams cut the mixed soundtrack as-is. Stem separation exists only inside analysis. |
 | **Lip-sync never lost** | No A/V offset on sync-critical content. Validated with SyncNet-style measurement against EBU R37 (+40 ms / −60 ms). Exceeding it is a hard fail. |
