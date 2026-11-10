@@ -52,6 +52,8 @@ Analysis reads the film once and produces the **score map**: time-aligned layers
 **Optional text inputs for the plot layer** (decision #61). Each improves plot scoring when available; analysis falls back to ASR plus vision without them.
 - **Subtitle file** (SRT/VTT).
   - Authoritative dialogue text and timing, better than ASR. ASR word timing still places the cuts.
+  - Every subtitle line is a protected unit. If ASR missed the line, its whole cue span is protected.
+  - *Validated in the prototype:* on *Tears of Steel*, Whisper missed 24 of 76 lines spoken under music and effects, including the climax. With the subtitles, the 30% version keeps 74 lines intact and cuts none partially, where it had lost 16 and partly cut 16.
   - **CC/SDH** subtitles add speaker names (who speaks, and to whom) and sound-event cues ("[door slams]", "[music swells]"), which mark plot-relevant sounds the dialogue never mentions.
 - **Screenplay** (found online).
   - Scene headings give scene structure.
