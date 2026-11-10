@@ -166,6 +166,57 @@ At 30% only 36% of the story is kept: average shot length drops from 4.56 s to 1
 
 **The new risk is the opposite extreme.** At 30% the film becomes nearly "all dialogue, minimal visuals". Purely visual story beats, such as action that matters to the plot, now have no importance signal. That needs the VLM plot layer.
 
+## Bake-off verdict (user's blind picks, 2026-11-10)
+
+The user marked a worst variant for 10 of the 11 cuts, but a best for only one.
+
+| Variant | Worst | Best |
+|---|---|---|
+| patch6 | 5 | 0 |
+| hard | 2 (incl. the bridge conversation) | 1 |
+| patch12 | 1 | 0 |
+| snap+patch6 | 1 | 0 |
+| dissolve6 | 1 | 0 |
+| snap+dissolve6 | **0** | 0 |
+
+**The graph-cut `patch` lost: a patch variant was worst in 7 of 10 cuts.** The per-pixel switch shows as tearing or patchwork. That matches the logged metric: seam energy came out higher than dissolve ghosting on every join.
+
+**Decision:**
+- `dissolve` stays the heal for unavoidable same-camera cuts.
+- `patch` is dropped.
+- Snap isn't adopted: the evidence is thin, and it can move a cut into words.
+- Better synthesis stays an open future direction.
+
+## Iteration 5: fillers and repeats (decision #60)
+
+**Question asked:** "What is the current strategy about cutting words that are not plot important?"
+
+**Answer (as of iteration 4):**
+- Individual words were never cut.
+- Only whole sentences could go, priced by plot score.
+- Uncaptured fillers counted as pauses.
+
+**User decision:** cut **fillers and repeats only**; real words inside a kept sentence are never cut.
+
+**Changes:**
+- **Verbatim ASR.** A filler-laden `initial_prompt` makes Whisper keep "um" and "uh" and stutters.
+- **Sentence splitting fix.** A trailing "..." is a false start, not a sentence end.
+- **What counts as a filler:**
+  - um / uh / er / hmm ...;
+  - "you know" when set off by punctuation;
+  - stutter repeats: an immediately repeated token, or a "word..." false start.
+- **Filler units.** Adjacent filler words merge into one unit (gap ≤ 0.3 s). A unit is cut **whole or not at all**: a partial cut is priced like real words (8.0 per frame), while a whole unit costs 0.3 per frame plus its join. This fixed a bug where "you" was cut out of "you know".
+- **Kind `filler`**, cut together with up to 3 frames of the pause on each side.
+
+**Result on *Tears of Steel*:** the film is scripted, so there are few disfluencies.
+
+| Unit | Detected | Removed |
+|---|---|---|
+| "Be..." stutter in "Be... be tender to her" | yes | whole, once the film is down to 25% |
+| "you know" | yes | never, at least down to 20% |
+
+At 30% all 58 sentences are intact and 100% of real-word frames are kept. Filler cuts land *inside* speech, so they're ordered after silent trims. That is correct for "least noticeable first", and they'll matter more in interviews or documentaries.
+
 ## Open (needs eyes and ears, not metrics)
 
 - **Audio joins** are the expected first failure. Signal-only scoring has no beat or speech awareness: a 125 ms hiccup in music, or a clipped word, is invisible to these metrics. Listen to `_090`, `_075` and `_060`.

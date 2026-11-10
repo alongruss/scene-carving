@@ -71,7 +71,10 @@ MIDSENT_W = 2.0                      # per frame: pauses inside a sentence (rush
 PLOT_BASE = 1.0                      # per frame: removing a WHOLE sentence ...
 PLOT_W = 3.0                         # ... plus this x its plot score (0..1)
 NONSPEECH_LOUD_W = 0.4               # non-speech content: loudness only (motion is not information)
-KIND_NAMES = ["hold", "jump", "at-cut", "shot-drop", "edge", "credits", "sentence"]
+FILLER_W = 0.3                       # per frame: fillers / stutter repeats are cheap (decision #60)
+FILLER_PAD = 3                       # a filler seam may take this many frames of pause each side
+FILLERS = {"um", "umm", "uh", "uhh", "uhm", "er", "erm", "ah", "hmm", "hm", "mm", "mhm", "eh"}
+KIND_NAMES = ["hold", "jump", "at-cut", "shot-drop", "edge", "credits", "sentence", "filler"]
 STOPWORDS = set("""a an the and or but if so of to in on at by for with from as is are was were be been
 being am i you he she it we they me him her us them my your his its our their this that these those
 there here what which who whom whose when where why how not no yes yeah okay ok oh uh um hmm hey well
@@ -277,7 +280,8 @@ def speech_layers(words_path, n, fps):
     for s in segs:
         for w in s["words"]:
             cur.append(w)
-            if w["word"].rstrip('"\')').endswith((".", "?", "!")):
+            # "..." is a trailing-off / false start inside a sentence, not a sentence end
+            if w["word"].rstrip('"\')').endswith((".", "?", "!")) and not w["word"].endswith(".."):
                 sents.append(cur)
                 cur = []
         if cur:
@@ -292,11 +296,27 @@ def speech_layers(words_path, n, fps):
     raw = np.array([sum(np.log((1 + len(sents)) / (1 + df[t])) + 1 for t in c) for c in content])
     imp = rank_fn(raw)(raw) if len(raw) else raw
     word_mask = np.zeros(n, bool)
+    filler_mask = np.zeros(n, bool)
     sent_mask = np.zeros(n, bool)
-    sentences = []
+    sentences, fillers = [], []
     for s, im in zip(sents, imp):
-        for w in s:
-            word_mask[int(w["start"] * fps):min(n, int(np.ceil(w["end"] * fps)))] = True
+        toks = [tok(w) for w in s]
+        for i, w in enumerate(s):
+            raw_w = w["word"]
+            # filler: um/uh/...; "you know" set off by punctuation; stutter = first of an
+            # immediately repeated token or a trailing-ellipsis false start ("Be... be")
+            is_filler = toks[i] in FILLERS
+            if toks[i] == "you" and i + 1 < len(s) and toks[i + 1] == "know" and (
+                    (i > 0 and s[i - 1]["word"].endswith(",")) or s[i + 1]["word"].endswith((",", ".", "?", "!"))):
+                is_filler = True
+            if toks[i] == "know" and i > 0 and toks[i - 1] == "you" and fillers and fillers[-1][2] == s[i - 1]["word"]:
+                is_filler = True
+            stutter = i + 1 < len(s) and toks[i] and (toks[i] == toks[i + 1] or raw_w.endswith(("...", "-", "—")))
+            f0, f1 = int(w["start"] * fps), min(n, int(np.ceil(w["end"] * fps)))
+            word_mask[f0:f1] = True
+            if is_filler or stutter:
+                filler_mask[f0:f1] = True
+                fillers.append((f0, f1 - 1, raw_w, "filler" if is_filler else "repeat"))
         fs, fe = int(s[0]["start"] * fps), min(n - 1, int(np.ceil(s[-1]["end"] * fps)) - 1)
         sent_mask[fs:fe + 1] = True
         sentences.append((fs, fe, float(im), " ".join(w["word"] for w in s)))
@@ -307,7 +327,15 @@ def speech_layers(words_path, n, fps):
         bmask[fe + 1:fe + 1 + breath] = True
         bmask[max(0, fs - breath // 2):fs] = True
     bmask &= ~sent_mask
-    return word_mask, sentences, sent_mask, bmask, breath
+    # adjacent filler words form one unit ("you know"): cut whole or not at all
+    units = []
+    for f0, f1, w, k in fillers:
+        if units and f0 - units[-1][1] <= int(0.3 * fps):
+            u0, _, uw, uk = units[-1]
+            units[-1] = (u0, f1, f"{uw} {w}", uk)
+        else:
+            units.append((f0, f1, w, k))
+    return word_mask, sentences, sent_mask, bmask, breath, filler_mask, units
 
 
 def credits_mask(dark, fps):
@@ -331,15 +359,29 @@ def cascade(F, fps, stop_fraction, words_path=None):
     rank_d = make_rank_d(F)
     rank_l = rank_fn(F["rms_db"])
     if words_path and Path(words_path).exists():
-        word_mask, sentences, sent_mask, breath, breath_len = speech_layers(words_path, n, fps)
+        word_mask, sentences, sent_mask, breath, breath_len, filler_mask, fillers = \
+            speech_layers(words_path, n, fps)
         src = "speech"
-        print(f"[cascade] speech: {len(sentences)} sentences, words cover {word_mask.mean():.0%} of frames")
+        print(f"[cascade] speech: {len(sentences)} sentences, words cover {word_mask.mean():.0%} of frames, "
+              f"{len(fillers)} fillers/repeats: " + ", ".join(f"{w}({k[0]})" for _, _, w, k in fillers[:12]))
     else:
         breath, breath_len = breathing_mask(F["rms_db"], fps)
         word_mask, sentences, sent_mask, src = np.zeros(n, bool), [], np.zeros(n, bool), "loudness"
+        filler_mask, fillers = np.zeros(n, bool), []
         print("[cascade] no words.json - information protection is loudness-only")
     bpre = np.concatenate([[0.0], np.cumsum(breath)])
-    wdpre = np.concatenate([[0], np.cumsum(word_mask)])
+    wdpre = np.concatenate([[0], np.cumsum(word_mask & ~filler_mask)])   # real words only
+    flpre = np.concatenate([[0], np.cumsum(filler_mask)])
+    u_fs = np.array([u[0] for u in fillers], np.int64)
+    u_fe = np.array([u[1] for u in fillers], np.int64)
+
+    def filler_cost(o0, o1):
+        """Filler frames in [o0,o1]: cheap only where a whole filler unit is inside."""
+        cost = 0.0
+        for k in range(np.searchsorted(u_fe, o0), np.searchsorted(u_fs, o1, "right")):
+            ov = flpre[min(o1, u_fe[k]) + 1] - flpre[max(o0, u_fs[k])]
+            cost += (FILLER_W if o0 <= u_fs[k] and u_fe[k] <= o1 else WORD_W) * ov
+        return cost
     s_fs = np.array([s[0] for s in sentences], np.int64)
     s_fe = np.array([s[1] for s in sentences], np.int64)
     s_rate = np.array([PLOT_BASE + PLOT_W * s[2] for s in sentences])
@@ -421,7 +463,8 @@ def cascade(F, fps, stop_fraction, words_path=None):
                 whole += 1
             else:
                 wf = wdpre[o1 + 1] - wdpre[o0]
-                cost += WORD_W * wf + MIDSENT_W * ((o1 - o0 + 1) - wf)
+                ff = flpre[o1 + 1] - flpre[o0]
+                cost += WORD_W * wf + filler_cost(o0, o1) + MIDSENT_W * ((o1 - o0 + 1) - wf - ff)
         return cost, whole
 
     def evaluate(a, b):
@@ -477,6 +520,13 @@ def cascade(F, fps, stop_fraction, words_path=None):
             push(int(s), int(e))
     for k in range(len(sentences)):
         push_sentence(k)
+    for f0, f1, _, _ in fillers:  # the filler itself plus a little of the pause around it
+        lo, hi = f0, f1
+        while lo - 1 >= 0 and not word_mask[lo - 1] and f0 - lo < FILLER_PAD:
+            lo -= 1
+        while hi + 1 < n and not word_mask[hi + 1] and hi - f1 < FILLER_PAD:
+            hi += 1
+        push(lo, hi)
     print(f"[cascade] {len(heap)} initial candidates ({time.time()-t0:.0f}s)")
 
     order, kept, target = [], n, int(stop_fraction * n)
@@ -496,6 +546,8 @@ def cascade(F, fps, stop_fraction, words_path=None):
             kind = 5
         elif whole:
             kind = 6
+        elif flpre[b + 1] > flpre[a] and wdpre[b + 1] == wdpre[a]:
+            kind = 7
         elif p < 0 or q >= n:
             kind = 4
         elif drop:
@@ -526,7 +578,7 @@ def cascade(F, fps, stop_fraction, words_path=None):
     print(f"[cascade] {len(order)} seams removed down to {kept/n:.0%} ({time.time()-t0:.0f}s)")
     return order, dict(subj_rank=subj_rank, loud_rank=loud_rank, credits=credits,
                        breath=breath, shot_start=shot_start, shot_end=shot_end,
-                       word_mask=word_mask, sentences=sentences)
+                       word_mask=word_mask & ~filler_mask, sentences=sentences, fillers=fillers)
 
 
 def keep_mask(order, n, fraction):
@@ -608,8 +660,11 @@ def report(order, F, aux, fps, fractions, path):
         whole_gone = sum((~keep[fs:fe + 1]).all() for fs, fe, _, _ in sents)
         clipped = [t for fs, fe, _, t in sents if 0 < keep[fs:fe + 1].sum() < fe - fs + 1
                    and (~keep[fs:fe + 1] & wm[fs:fe + 1]).any()]
-        info_line = (f"   information: word frames kept {keep[wm].mean() if wm.any() else 1:.0%}; sentences "
-                     f"{whole_kept} intact / {len(clipped)} with words cut / {whole_gone} removed whole")
+        fl = aux.get("fillers", [])
+        fl_gone = [w for f0, f1, w, _ in fl if not keep[f0:f1 + 1].any()]
+        info_line = (f"   information: real-word frames kept {keep[wm].mean() if wm.any() else 1:.0%}; sentences "
+                     f"{whole_kept} intact / {len(clipped)} with real words cut / {whole_gone} removed whole; "
+                     f"fillers/repeats removed {len(fl_gone)}/{len(fl)}" + (f" ({', '.join(fl_gone[:8])})" if fl_gone else ""))
         lines += [f"== keep {fr:.0%}: {keep.sum()/fps/60:.2f} min, {len(active)} seams, {len(joins)} joins "
                   f"({len(joins)/(keep.sum()/fps/60):.1f}/min); story kept {story_kept:.0%}, "
                   f"credits kept {keep[aux['credits']].mean() if aux['credits'].any() else 0:.0%}",

@@ -22,8 +22,12 @@ audio = np.frombuffer(raw, np.float32)
 t0 = time.time()
 model = WhisperModel("small.en", device="cpu", compute_type="int8", download_root="cache/whisper")
 print(f"[asr] model ready ({time.time()-t0:.0f}s)", flush=True)
+# Whisper normally drops disfluencies; a filler-laden prompt makes it transcribe
+# "um", "uh" and stutters verbatim, so they can become cheap seams (decision #60).
+VERBATIM_PROMPT = "Umm, let me think like, hmm... Okay, uh, here's what I'm, I'm, like, thinking."
 segments, info = model.transcribe(audio, language="en", word_timestamps=True, vad_filter=True,
-                                  condition_on_previous_text=False, beam_size=5)
+                                  condition_on_previous_text=False, beam_size=5,
+                                  initial_prompt=VERBATIM_PROMPT)
 result = []
 for s in segments:
     result.append({"start": round(s.start, 3), "end": round(s.end, 3), "text": s.text.strip(),
