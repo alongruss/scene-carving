@@ -9,17 +9,23 @@
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141413;--fg:#ecebe6;--muted:#9c9a92;--line:#2e2d2a;--card:#1c1c1a;--accent:#f97316;--accent-soft:rgba(249,115,22,.18)}}
 :root[data-theme="dark"]{--bg:#141413;--fg:#ecebe6;--muted:#9c9a92;--line:#2e2d2a;--card:#1c1c1a;--accent:#f97316;--accent-soft:rgba(249,115,22,.18)}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
-main{max-width:1240px;margin:0 auto;padding:28px 16px 72px}
+main{max-width:min(2200px,100%);margin:0 auto;padding:28px 16px 72px}
 h1{font-size:22px;margin:0 0 4px}.lede{color:var(--muted);max-width:900px}
 .banner{display:inline-block;font-size:12px;font-weight:600;letter-spacing:.05em;color:var(--accent);border:1px solid var(--accent);border-radius:4px;padding:1px 6px;margin-bottom:10px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin:18px 0}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.grid{display:grid;grid-template-columns:repeat(var(--cols,2),minmax(0,1fr));gap:12px}
+@media (max-width:700px){.grid{grid-template-columns:1fr}}
+.size{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.size button{border:0;border-radius:0;padding:4px 12px}
+.size button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent)}
+.toolbar{position:sticky;top:0;z-index:2;background:var(--bg);padding:8px 0;display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:14px;border-bottom:1px solid var(--line)}
 .v{border:1px solid var(--line);border-radius:8px;padding:8px}
 .v.best{border-color:var(--accent);background:var(--accent-soft)}
 .v.worst{opacity:.55}
 video{width:100%;display:block;border-radius:4px;background:#000}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px;font-size:14px}
 .reveal{font-size:13px;color:var(--muted);margin-top:4px;min-height:1.2em}
+.muted{color:var(--muted)}
 button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:6px;padding:6px 12px;cursor:pointer}
 button.primary{border-color:var(--accent);color:var(--accent)}
 textarea{width:100%;min-height:120px;font:13px ui-monospace,monospace;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:8px}
@@ -29,6 +35,8 @@ textarea{width:100%;min-height:120px;font:13px ui-monospace,monospace;background
 <div class="banner">PROTOTYPE — BLIND BAKE-OFF</div>
 <h1>Heal bake-off: what should a same-camera cut look like?</h1>
 <p class="lede">Each card shows the same 3 seconds around one mid-shot cut, healed several different ways, labelled in a shuffled order. Cuts with someone speaking get four versions; cuts without speech get six, because two methods are only allowed where no one speaks. For each card, pick the version you'd notice <b>least</b> (best) and <b>most</b> (worst). The clips loop; unmute for sound (the audio is identical in every version of a card). When you're done, press <b>Reveal</b> to see which method was which, then <b>Copy results</b> and paste them in chat.</p>
+<div class="toolbar"><span class="muted">Videos per row</span>
+  <span class="size" role="group" aria-label="Videos per row"><button data-cols="1">1</button><button data-cols="2">2</button><button data-cols="3">3</button></span></div>
 <div id="cards"></div>
 <div class="card">
   <div class="row"><button class="primary" id="reveal">Reveal methods</button><button id="copy">Copy results</button><span class="reveal" id="tally"></span></div>
@@ -38,6 +46,15 @@ textarea{width:100%;min-height:120px;font:13px ui-monospace,monospace;background
 <script>
 const CARDS = /*DATA*/null;
 const picks = {};
+function setCols(n) {
+  document.documentElement.style.setProperty("--cols", n);
+  document.querySelectorAll(".size button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.cols === String(n))));
+  try { localStorage.setItem("bakeoff-cols", n); } catch (e) {}
+}
+document.querySelectorAll(".size button").forEach(b => b.onclick = () => setCols(b.dataset.cols));
+let savedCols = null;
+try { savedCols = localStorage.getItem("bakeoff-cols"); } catch (e) {}
+setCols(savedCols || 2);
 const box = document.getElementById("cards");
 CARDS.forEach(c => {
   const el = document.createElement("div"); el.className = "card";

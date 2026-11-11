@@ -13,6 +13,7 @@ The earlier patch/snap variants were rejected (decision #59) and are gone.
 Run after carve_proto.py:
   .venv/Scripts/python prototype/bakeoff.py media/tears_of_steel_720p.mov
 Output: renders/<stem>/bakeoff/index.html (+ clips). Open via serve.py: /bakeoff/index.html
+Add --page-only to rebuild just the page from the existing clips (after a template change).
 See docs/research/frame-infilling-at-joins.md for the reasoning.
 """
 import json
@@ -95,10 +96,22 @@ def pick(cands, k):
     return [cands[int(round(i * (len(cands) - 1) / (k - 1)))] for i in range(k)]
 
 
+def write_page(bdir, cards):
+    tpl = (Path(__file__).parent / "bakeoff_template.html").read_text(encoding="utf-8")
+    (bdir / "index.html").write_text(tpl.replace("/*DATA*/null", json.dumps(cards)), encoding="utf-8")
+    print(f"[bakeoff] {bdir / 'index.html'}")
+
+
 def main():
     src = Path(sys.argv[1])
     outdir = Path("renders") / src.stem
     bdir = outdir / "bakeoff"
+    if "--page-only" in sys.argv:              # template changed: rebuild the page, keep the clips
+        html = (bdir / "index.html").read_text(encoding="utf-8")
+        start = html.index("const CARDS = ") + len("const CARDS = ")
+        cards, _ = json.JSONDecoder().raw_decode(html[start:])
+        write_page(bdir, cards)
+        return
     bdir.mkdir(exist_ok=True)
     for old in bdir.glob("j*_*.mp4"):          # clips from an earlier bake-off
         old.unlink()
@@ -168,9 +181,7 @@ def main():
                   + (f" flow {x['flow_px']}px fb {x['fallback']}" if "flow_px" in x else "")
                   for x in sorted(card["variants"], key=lambda x: VARIANTS.index(x["variant"]))))
     (bdir / "tmp.wav").unlink(missing_ok=True)
-    tpl = (Path(__file__).parent / "bakeoff_template.html").read_text(encoding="utf-8")
-    (bdir / "index.html").write_text(tpl.replace("/*DATA*/null", json.dumps(cards)), encoding="utf-8")
-    print(f"[bakeoff] {bdir / 'index.html'}")
+    write_page(bdir, cards)
 
 
 if __name__ == "__main__":
