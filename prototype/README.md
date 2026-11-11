@@ -349,6 +349,47 @@ After the fixes, the longest unit in any film is 13 s, and credits are found onl
 - **"very, very"** is still tagged as a stutter repeat.
 - **Alignment of machine captions** still over-segments (40 pieces on *Detour*). It no longer drives the units, so this only affects the line report.
 
+## Iteration 9: the second device, a film-wide speed-up (decision #66)
+
+**User:** "it should happen in parallel with current carving methods as a second device. 100% original is 1.0 speed and 20% is 1.1 speed", with **one speed everywhere**.
+
+- **Speed = 1 + (1 − target) × `SPEED_SLOPE`** (0.125), from `speed_for()`. **Carve fraction = target × speed**, from `carve_for()`.
+  - It is monotonic in the target, so the nested order holds.
+  - `--speed-slope 0` gives carve-only.
+- **Render:**
+  - Every carved frame goes to the encoder at `fps × speed`.
+  - The audio, crossfades included, is stretched by ffmpeg `rubberband=tempo=…:pitch=1`.
+- **Stretch test** (`atempo` drifts, so it is rejected):
+
+  | Speed | Length (samples) | Click offset, median | Click offset, worst | 440 Hz tone |
+  |---|---|---|---|---|
+  | 1.0125× | exact | +0.8 ms | 1.4 ms | kept |
+  | 1.05× | exact | +1.5 ms | 4.6 ms | kept |
+  | 1.1× | exact | +2.4 ms | 7.9 ms | kept |
+
+  For comparison, `atempo` was up to 182 samples off in length.
+- **Report:** `== keep 30%: 3.67 min = carve to 32.6% at 1.0875x speed …`.
+- **Viewer:** the slider sets the carve and `playbackRate` together, and browsers keep the pitch. The state panel shows the result length, the carve fraction and the speed.
+
+**Validated** on *Tears of Steel* and *Duck and Cover*, at all four targets:
+- **Frame rates are exact:** for *Tears of Steel*, 24.3, 24.75, 25.2 and 26.1 fps.
+- **Lengths:** picture and sound in each file differ by under one frame (19–40 ms of AAC padding). Each length lands within one seam of the target.
+- **Lip-sync**, measured by correlating the rendered audio's loudness envelope with the source at the matching moment inside kept stretches:
+  - median offset 0 to −5 ms at 1.0125× and 1.0875×;
+  - every 45 s along *Tears of Steel*'s 588 s first stretch it stays at 0 to −5 ms (no drift), apart from the opening second, where the envelope has no clear peak to align on.
+
+  This is far inside EBU R37 (+40 / −60 ms).
+
+**Expected effect**, as real-word frames kept, carve-only → with the speed-up. This is estimated from the existing removal orders.
+
+| Film | 75% | 60% | 30% | 20% |
+|---|---|---|---|---|
+| *His Girl Friday* | 91.7 → 93.6 | 78.2 → 81.1 | 41.8 → 45.4 | 27.9 → 30.7 |
+| *Duck and Cover* | 89.0 → 90.5 | 74.8 → 78.0 | 40.7 → 43.8 | 27.8 → 30.4 |
+| *Detour* | 100 → 100 | 96.3 → 98.1 | 58.5 → 63.1 | 39.3 → 43.3 |
+| *Night of the Living Dead* | 99.7 → 99.7 | 99.7 → 99.7 | 90.6 → 94.7 | 66.6 → 72.5 |
+| *Tears of Steel* | 100 → 100 | 100 → 100 | 99.1 → 100 | 86.6 → 90.2 |
+
 ## Open (needs eyes and ears, not metrics)
 
 - **Audio joins** are the expected first failure. Signal-only scoring has no beat or speech awareness: a 125 ms hiccup in music, or a clipped word, is invisible to these metrics. Listen to `_090`, `_075` and `_060`.

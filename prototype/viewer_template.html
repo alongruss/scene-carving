@@ -46,7 +46,7 @@ a{color:var(--accent)}
 <main>
 <div class="banner">PROTOTYPE — THROWAWAY</div>
 <h1>Liquid Retime: carve-only seam carving in time</h1>
-<p class="lede"><b>Question:</b> can a film be shortened by removing only original frames and audio, with no synthesis and no speed change, before anyone notices? Every frame below is ranked by how cheap it is to cut (signal-only scores: motion, loudness, the discontinuity a cut would create, spread). Drag <b>Target length</b> and the carved version plays immediately: removed seams are skipped live, like the slider in liquid rescale. The preview has no crossfades and seeks can stutter, so judge the result from the real renders at the bottom.</p>
+<p class="lede"><b>Question:</b> can a film be shortened by removing only original frames and audio, with no synthesis, before anyone notices? Every frame below is ranked by how cheap it is to cut (signal-only scores: motion, loudness, the discontinuity a cut would create, spread). A second device runs alongside: one gentle film-wide <b>speed-up</b> with the pitch kept, rising from 1.0× at 100% to 1.1× at 20% (decision #66). Drag <b>Target length</b> and the carved version plays immediately at that speed: removed seams are skipped live, like the slider in liquid rescale. The preview has no crossfades and seeks can stutter, so judge the result from the real renders at the bottom.</p>
 
 <section class="grid">
   <div class="card">
@@ -120,7 +120,10 @@ const Retime = (() => {
     return { removed, nextKept, keptBefore, joins, kindCount, stratCount, alive, asl: aliveFrames / Math.max(alive, 1) / fps,
              kept, maxLocal, seams: k, joinsPerMin: joins / Math.max(kept / fps / 60, 1e-9) };
   };
-  return { removalRank, prefixFor, carve };
+  // Second device (decision #66): one film-wide speed-up, and the carve that completes the target.
+  const speedFor = (target, slope) => 1 + (1 - target) * slope;
+  const carveFor = (target, slope) => Math.min(1, target * speedFor(target, slope));
+  return { removalRank, prefixFor, carve, speedFor, carveFor };
 })();
 
 /* ---- page shell ---- */
@@ -131,12 +134,15 @@ const v = $("v"), lenEl = $("len");
 const fmt = s => { s = Math.max(0, s); const m = Math.floor(s / 60); return `${m}:${(s % 60).toFixed(1).padStart(4, "0")}`; };
 const heat = getComputedStyle(document.documentElement).getPropertyValue("--heat").trim();
 const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
-let S = null, prev = null;
+let S = null, prev = null, speed = 1;
+const slope = D.speed_slope || 0;
 
 function update() {
-  const keep = +lenEl.value / 100;
-  const k = Retime.prefixFor(order, n, keep);
+  const target = +lenEl.value / 100;
+  speed = Retime.speedFor(target, slope);
+  const k = Retime.prefixFor(order, n, Retime.carveFor(target, slope));
   prev = S; S = Retime.carve(rank, k, fps, D.cuts, order, D.kinds);
+  v.preservesPitch = true; v.defaultPlaybackRate = speed; v.playbackRate = speed;  // browsers keep pitch
   $("lenOut").textContent = `${(+lenEl.value).toFixed(1)}%`;
   renderState(); drawMap(); drawZoom(); renderNear();
 }
@@ -146,7 +152,8 @@ function renderState() {
   const diff = (a, b) => prev && a !== b ? " changed" : "";
   const rows = [
     ["Original", fmt(n / fps)],
-    ["Carved", `<span class="big${diff(prev && prev.kept, S.kept)}">${fmt(S.kept / fps)}</span> <span class="muted">(${(100 * S.kept / n).toFixed(1)}%)</span>`],
+    ["Result", `<span class="big${diff(prev && prev.kept, S.kept)}">${fmt(S.kept / fps / speed)}</span> <span class="muted">(${(100 * S.kept / n / speed).toFixed(1)}%)</span>`],
+    ["Carved to", `${fmt(S.kept / fps)} <span class="muted">(${(100 * S.kept / n).toFixed(1)}%), then played at</span> ${speed.toFixed(4)}× <span class="muted">(pitch kept)</span>`],
     ["Seams removed", `<span class="${diff(prev && prev.seams, S.seams)}">${S.seams}</span> of ${order.length} in the cascade`],
     ["Joins", `${S.joins} <span class="muted">(${S.joinsPerMin.toFixed(1)} per carved minute)</span>`],
     ["By kind", D.kinds.map(x => `${x} ${S.kindCount[x]}`).join(" · ")],
@@ -154,7 +161,7 @@ function renderState() {
     ["Shots kept", `${S.alive} of ${D.cuts.length}`],
     ["Avg shot length", `${(n / fps / D.cuts.length).toFixed(2)} s → ${S.asl.toFixed(2)} s`],
     ["Max local removal", `${(100 * S.maxLocal).toFixed(0)}% <span class="muted">in any 10 s (credits included)</span>`],
-    ["Playhead", `orig ${fmt(f / fps)} · carved ${fmt(S.keptBefore[f] / fps)}${S.removed[f] ? ' · <span class="changed">inside a removed seam</span>' : ""}`],
+    ["Playhead", `orig ${fmt(f / fps)} · result ${fmt(S.keptBefore[f] / fps / speed)}${S.removed[f] ? ' · <span class="changed">inside a removed seam</span>' : ""}`],
   ];
   $("state").innerHTML = rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("");
 }
@@ -262,7 +269,7 @@ function showTab(i) {
 }
 W.forEach((w, i) => { const b = document.createElement("button"); b.textContent = w.t; b.onclick = () => showTab(i); $("tabs").appendChild(b); });
 
-$("renders").innerHTML = D.renders.map((r, i) => `<a href="${r}">${r}</a> <span class="muted">keep ${Math.round(D.fractions[i] * 100)}%</span>`).join("<br>") +
+$("renders").innerHTML = D.renders.map((r, i) => `<a href="${r}">${r}</a> <span class="muted">target ${Math.round(D.fractions[i] * 100)}%${slope ? ` = carve to ${(100 * Retime.carveFor(D.fractions[i], slope)).toFixed(1)}% at ${Retime.speedFor(D.fractions[i], slope).toFixed(4)}×` : ""}</span>`).join("<br>") +
   `<p class="muted" style="margin:8px 0 0">Open these in a normal player to judge carving properly. They include 10 ms crossfades and no seek stutter.</p>`;
 
 update(); showTab(0);

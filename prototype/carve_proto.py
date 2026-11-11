@@ -64,6 +64,7 @@ CREDITS_MAX_SPEECH = 0.15            # a dark block with more dialogue than this
 CREDITS_CHAIN_S = 90.0               # credit blocks chain to the film's ends with gaps <= this
 SUB_PUNCT_MIN = 0.15                 # punctuation per word: real subtitles ~0.4, machine captions <0.1
 SENT_GAP_S = 2.0                     # a silence this long between words ends a sentence unit
+SPEED_SLOPE = 0.125                  # film-wide speed = 1 + (1 - target) * this: 1.0x at 100%, 1.1x at 20% (#66)
 SMALL_W = 160                        # analysis frame width
 XFADE_MS = 10                        # audio crossfade
 DISSOLVE_H = 3                       # picture dissolve = 2*H frames at same-shot joins
@@ -724,6 +725,18 @@ def cascade(F, fps, stop_fraction, words_path=None, srt_path=None):
                        word_mask=word_mask & ~filler_mask, sentences=sentences, fillers=fillers, cues=cues)
 
 
+def speed_for(target, slope=SPEED_SLOPE):
+    """The second device (decision #66): one film-wide speed-up that rises as the target
+    length drops. Pitch is kept, every carved frame is shown, and lip-sync stays exact."""
+    return 1.0 + (1.0 - target) * slope
+
+
+def carve_for(target, slope=SPEED_SLOPE):
+    """What carving keeps so that carving plus speed-up land exactly on the target.
+    It rises with the target (for slope <= 1), so the nested removal order still holds."""
+    return min(1.0, target * speed_for(target, slope))
+
+
 def keep_mask(order, n, fraction):
     target = n - round(fraction * n)
     removed, cum = np.zeros(n, bool), 0
@@ -769,7 +782,7 @@ def picture_plan(keep, F, rank_d, h=DISSOLVE_H):
 
 
 # --- 3. REPORT ---------------------------------------------------------------
-def report(order, F, aux, fps, fractions, path):
+def report(order, F, aux, fps, fractions, path, slope=SPEED_SLOPE):
     n = len(F["d"])
     shot_len = aux["shot_end"] - aux["shot_start"] + 1
     lines = [f"frames={n} fps={fps} duration={n/fps/60:.2f} min shots={len(shot_len)} "
@@ -777,7 +790,8 @@ def report(order, F, aux, fps, fractions, path):
     g, shot = F["g"], F["shot"]
     rank_d = make_rank_d(F)
     for fr in fractions:
-        keep = keep_mask(order, n, fr)
+        sp, kf = speed_for(fr, slope), carve_for(fr, slope)
+        keep = keep_mask(order, n, kf)
         removed_idx = set(np.flatnonzero(~keep))
         active = [o for o in order if o[0] in removed_idx]
         kinds = {k: 0 for k in KIND_NAMES}
@@ -814,8 +828,10 @@ def report(order, F, aux, fps, fractions, path):
             info_line += (f"\n   subtitle lines: {sum(k >= 0.95 for k, _ in cl)} intact / "
                           f"{sum(0.2 <= k < 0.95 for k, _ in cl)} partly cut / {len(lost)} lost"
                           + (f" ({' | '.join(lost[:6])})" if lost else ""))
-        lines += [f"== keep {fr:.0%}: {keep.sum()/fps/60:.2f} min, {len(active)} seams, {len(joins)} joins "
-                  f"({len(joins)/(keep.sum()/fps/60):.1f}/min); story kept {story_kept:.0%}, "
+        out_min = keep.sum() / fps / sp / 60
+        lines += [f"== keep {fr:.0%}: {out_min:.2f} min = carve to {kf:.1%} at {sp:.4f}x speed, "
+                  f"{len(active)} seams, {len(joins)} joins "
+                  f"({len(joins)/out_min:.1f}/min); story kept {story_kept:.0%}, "
                   f"credits kept {keep[aux['credits']].mean() if aux['credits'].any() else 0:.0%}",
                   info_line,
                   "   kinds: " + ", ".join(f"{k}={v}" for k, v in kinds.items()),
@@ -832,7 +848,7 @@ def report(order, F, aux, fps, fractions, path):
 
 
 # --- 4. RENDER ---------------------------------------------------------------
-def render(src, info, order, F, fractions, outdir, stem, render_height=None):
+def render(src, info, order, F, fractions, outdir, stem, render_height=None, slope=SPEED_SLOPE):
     n, rank_d = len(F["d"]), make_rank_d(F)
     fps, W, H = info["fps"], info["w"], info["h"]
     W0, H0 = W, H
@@ -848,7 +864,8 @@ def render(src, info, order, F, fractions, outdir, stem, render_height=None):
     fo, fi = np.cos(ramp), np.sin(ramp)
     plans, encs = {}, {}
     for fr in fractions:
-        keep = keep_mask(order, n, fr)
+        sp = speed_for(fr, slope)
+        keep = keep_mask(order, n, carve_for(fr, slope))
         plans[fr], counts = picture_plan(keep, F, rank_d)
         pieces, joins, pos = [], [], 0
         for s, e in runs(keep):
@@ -868,13 +885,17 @@ def render(src, info, order, F, fractions, outdir, stem, render_height=None):
             wf.setframerate(sr)
             wf.writeframes((np.clip(out, -1, 1) * 32767).astype(np.int16).tobytes())
         mp4 = outdir / f"{stem}_{int(fr*100):03d}.mp4"
+        # Speed-up (decision #66): every carved frame is shown, just at fps*speed, and the
+        # audio is time-stretched with its pitch kept (rubberband: exact length, ~2 ms offset).
+        af = ["-af", f"rubberband=tempo={sp:.6f}:pitch=1"] if sp != 1 else []
         encs[fr] = subprocess.Popen(
             ["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "yuv420p",
-             "-s", f"{W}x{H}", "-r", str(fps), "-i", "-", "-i", str(wav),
+             "-s", f"{W}x{H}", "-r", repr(fps * sp), "-i", "-", "-i", str(wav), *af,
              "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "veryfast",
              "-crf", "20", "-c:a", "aac", "-b:a", "192k", "-shortest", str(mp4)],
             stdin=subprocess.PIPE)
-        print(f"[render] keep {fr:.0%}: joins " + ", ".join(f"{k}={v}" for k, v in counts.items()))
+        print(f"[render] target {fr:.0%}: carve to {keep.mean():.1%} at {sp:.4f}x; joins "
+              + ", ".join(f"{k}={v}" for k, v in counts.items()))
     need = Counter()
     for plan in plans.values():
         for it in plan:
@@ -924,7 +945,7 @@ def render(src, info, order, F, fractions, outdir, stem, render_height=None):
 
 
 # --- 5. VIEWER ---------------------------------------------------------------
-def viewer(order, F, aux, info, fractions, outdir, stem):
+def viewer(order, F, aux, info, fractions, outdir, stem, slope=SPEED_SLOPE):
     proxy = outdir / "proxy.mp4"
     if not proxy.exists():
         sh(["ffmpeg", "-v", "error", "-y", "-i", str(info["src"]), "-vf", "scale=640:-2",
@@ -940,7 +961,7 @@ def viewer(order, F, aux, info, fractions, outdir, stem):
         "order": order, "kinds": KIND_NAMES, "strategies": STRATEGIES,
         "breath": [[int(s), int(e)] for s, e in runs(aux["breath"])],
         "renders": [f"{stem}_{int(fr*100):03d}.mp4" for fr in fractions],
-        "fractions": fractions,
+        "fractions": fractions, "speed_slope": slope,
     }
     tpl = (Path(__file__).parent / "viewer_template.html").read_text(encoding="utf-8")
     (outdir / "viewer.html").write_text(tpl.replace("/*DATA*/null", json.dumps(data, separators=(",", ":"))),
@@ -956,6 +977,8 @@ def main():
     ap.add_argument("--no-render", action="store_true")
     ap.add_argument("--subs", help="subtitle file (SRT) - authoritative dialogue for the plot layer")
     ap.add_argument("--render-height", type=int, help="downscale renders to this height (e.g. 720)")
+    ap.add_argument("--speed-slope", type=float, default=SPEED_SLOPE,
+                    help="film-wide speed = 1 + (1 - target) * slope (default 0.125: 1.1x at 20%%; 0 = carve only)")
     args = ap.parse_args()
     src = Path(args.src)
     stem = src.stem
@@ -972,10 +995,10 @@ def main():
         subs = aligned
     order, aux = cascade(F, info["fps"], args.stop, outdir / "words.json", subs)
     (outdir / "order.json").write_text(json.dumps(order), encoding="utf-8")
-    report(order, F, aux, info["fps"], args.fractions, outdir / "report.txt")
-    viewer(order, F, aux, info, args.fractions, outdir, stem)
+    report(order, F, aux, info["fps"], args.fractions, outdir / "report.txt", args.speed_slope)
+    viewer(order, F, aux, info, args.fractions, outdir, stem, args.speed_slope)
     if not args.no_render:
-        render(src, info, order, F, args.fractions, outdir, stem, args.render_height)
+        render(src, info, order, F, args.fractions, outdir, stem, args.render_height, args.speed_slope)
 
 
 if __name__ == "__main__":
