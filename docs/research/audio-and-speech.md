@@ -1,6 +1,6 @@
 # Prior art: audio and speech
 
-> Part of the [Liquid Retime research survey](README.md) (scan of 2026-11-10).
+> Part of the [Scene Carving research survey](README.md) (scan of 2026-11-10).
 > Scope: carving time out of a film's mixed soundtrack without harming speech, music or ambience, while keeping lip-sync.
 >
 > **Verification:** each URL was confirmed by fetching it or finding it in search results. **UNVERIFIED** marks anything not confirmed.
@@ -11,7 +11,7 @@
 > - Demucs has been archived (read-only since 2025-01-01).
 > - Auto-Editor is now written in Nim.
 >
-> **Status for Liquid Retime: carve-only.** The [decisions](../DECISIONS.md) settled three things after this scan:
+> **Status for Scene Carving: carve-only.** The [decisions](../DECISIONS.md) settled three things after this scan:
 > - **No time-scale modification (TSM).** Speech is never sped up.
 > - **No stem remixing.** Audio is carved from the original mix, and stem separation is used *for analysis only*.
 > - **No audio synthesis, generation or looping.** Joins use short, cheap crossfades.
@@ -63,7 +63,7 @@ Why TSM is not used: speeding up speech without changing pitch means rebuilding 
 | 25 | Krivokapić, "Prosodic planning: effects of phrasal length and complexity on pause duration," Journal of Phonetics 35(2):162–179, 2007 | https://doi.org/10.1016/j.wocn.2006.04.001 | Pause length tracks prosodic and phrasal structure. Shrinking should **preserve rank order**, not flatten pauses to one length. |
 | 26 | Roberts & Francis, "Identifying a temporal threshold of tolerance for silent gaps after requests," JASA 133(6):EL471–EL477, 2013 | https://doi.org/10.1121/1.4802900 | Long gaps after requests signal reluctance (the exact threshold, possibly about 700 ms, is **UNVERIFIED**). They carry meaning and deserve protection. |
 
-**Inferred floor (research reference).** Gaps between speakers ≥ 200 ms. Pauses within a speaker at phrase boundaries ≥ about 250 ms. Compress pauses roughly in proportion to their length so rank order is kept. Mark long gaps after questions or requests as meaningful. Per the decisions, Liquid Retime **learns its floors from each film's own pause statistics**, and these norms serve as reference and fallback.
+**Inferred floor (research reference).** Gaps between speakers ≥ 200 ms. Pauses within a speaker at phrase boundaries ≥ about 250 ms. Compress pauses roughly in proportion to their length so rank order is kept. Mark long gaps after questions or requests as meaningful. Per the decisions, Scene Carving **learns its floors from each film's own pause statistics**, and these norms serve as reference and fallback.
 
 ## 4. Silence and filler removal tools
 
@@ -92,7 +92,7 @@ Why TSM is not used: speeding up speech without changing pitch means rebuilding 
 | 42 | Heydari, Cwitkowitz & Duan, "BeatNet," ISMIR 2021 | https://arxiv.org/abs/2108.03576 · https://github.com/mjhydri/BeatNet | CC-BY-4.0 | Joint beat, downbeat and meter tracking, with an offline mode. |
 | 43 | Kim & Nam, "All-In-One," WASPAA 2023 | https://github.com/mir-aidj/all-in-one | MIT | Beats, downbeats and labelled sections (verse, chorus). Needs NATTEN built from source on Windows. |
 
-For Liquid Retime: we never remix stems, so music can only be cut where *the whole mix* is cuttable. Beat and downbeat positions (computed on a separated music stem during analysis) feed the noticeability of audio joins in the mix.
+For Scene Carving: we never remix stems, so music can only be cut where *the whole mix* is cuttable. Beat and downbeat positions (computed on a separated music stem during analysis) feed the noticeability of audio joins in the mix.
 
 ## 6. Cinematic source separation into dialogue, music and effects — *analysis only*
 

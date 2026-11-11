@@ -1,12 +1,13 @@
-# Liquid Retime: glossary
+# Scene Carving: glossary
 
-Project vocabulary comes first. Borrowed academic and industry terms follow, each linked to the research doc where it is explained. When a project term conflicts with common usage, the project term wins in all Liquid Retime docs and code.
+Project vocabulary comes first. Borrowed academic and industry terms follow, each linked to the research doc where it is explained. When a project term conflicts with common usage, the project term wins in all Scene Carving docs and code.
 
 ## Project terms
 
 | Term | Definition | Avoid / notes |
 |---|---|---|
-| **Liquid Retime** | The project, and the operation of shortening a film by seam carving in time. | — |
+| **Scene Carving** | The project: seam carving applied to a film's time axis, named to echo *seam carving*. Full title: *Scene Carving – Liquid Retiming*. Formerly *Liquid Retime* (decision #69). | — |
+| **Liquid retiming** | The operation: shortening a film by carving seams of time, as *liquid rescale* shrinks an image by carving seams of pixels. | Not a speed change: the gentle film-wide speed-up is only a second device (#66). |
 | **Retime** | To shorten a film by **carving** seams, helped by at most one gentle film-wide speed-up (the **second device**). It never involves synthesis. | Don't use it for "speed up" or "summarize". |
 | **Second device** | The film-wide speed-up that runs alongside carving: speed = 1 + (1 − target) / 8, so 1.1× at 20%. It applies to picture and sound together, keeps the pitch, and is never local (decision #66). | Not a "speed mode": it is set by the target length. |
 | **Carve / carve-only** | Removing original material. Carve-only is the principle that every output frame and sample exists in the source. | Not "edit", which is too broad. |

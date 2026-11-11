@@ -1,7 +1,7 @@
 # Patching from other times: healing temporal seams with existing pixels
 
-> Part of the [Liquid Retime research survey](README.md) (scan of 2026-11-10).
-> Scope: is PatchMatch the right analogue for Liquid Retime, and what is the state of the art in hiding a temporal seam (a jump cut) by borrowing frames or patches from other times instead of cross-dissolving?
+> Part of the [Scene Carving research survey](README.md) (scan of 2026-11-10).
+> Scope: is PatchMatch the right analogue for Scene Carving, and what is the state of the art in hiding a temporal seam (a jump cut) by borrowing frames or patches from other times instead of cross-dissolving?
 >
 > **Verification:** ✔ URL fetched and content confirmed. † DOI checked against Crossref (title, authors and venue matched). (s) taken from search results only, or the fetch was blocked. **UNVERIFIED**: could not be confirmed. Runtimes quoted from papers are on the authors' hardware. *Est.* marks an arithmetic estimate for the GTX 970M (sm_52, fp32 only, 6 GB) and i7-6700HQ.
 >

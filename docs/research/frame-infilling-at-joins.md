@@ -1,6 +1,6 @@
 # Frame infilling at joins: interpolation, morph cuts and generative in-betweening
 
-> Part of the [Liquid Retime research survey](README.md) (scan of 2026-11-11).
+> Part of the [Scene Carving research survey](README.md) (scan of 2026-11-11).
 > Scope: which temporal frame-infilling techniques could compete with the 6-frame `dissolve` at same-shot (mid-shot) joins, and which of them run on the development laptop (GTX 970M, sm_52, 6 GB, fp32 only; i7-6700HQ; 32 GB RAM; Windows 11; PyTorch ≤ 2.14 from the cu126 wheels, see [landscape.md](landscape.md) §5).
 > It builds on [patching-from-other-times.md](patching-from-other-times.md) (patch heals, video inpainting, transitions between non-adjacent frames) and [video-and-editing.md](video-and-editing.md) §5 (Berthouzoz 2012, Morph Cut, FILM, RIFE, jump-cut smoothing). Those entries are extended here, not repeated.
 >

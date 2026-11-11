@@ -1,4 +1,4 @@
-# Liquid Retime: vision
+# Scene Carving: vision
 
 ## The bet
 
@@ -6,13 +6,13 @@ Media keeps getting faster. Across 180 popular films, the mean shot length fell 
 
 Older, slower films risk losing whole generations of viewers. Today's fix is the player's **uniform 1.5× button**. It rushes the dialogue while the dead air still drags, and it compresses performances and music by the same amount as empty holds.
 
-Liquid Retime offers a different fix: **liquid rescale for time.** Seam carving shrinks an image by removing its least noticeable pixel paths. Liquid Retime shortens a film by removing its least noticeable, least important **seams of time**, from a single "umm" or a static frame up to a whole side scene. It preserves what the director meant.
+Scene Carving offers a different fix: **liquid retiming**, liquid rescale for time. Seam carving shrinks an image by removing its least noticeable pixel paths. Scene Carving shortens a film by removing its least noticeable, least important **seams of time**, from a single "umm" or a static frame up to a whole side scene. It preserves what the director meant.
 
 ## The headline: intent-preserving
 
 > "Same film, faster, trying to save the director's intent."
 
-Pauses, holds and pacing are not slack by default. A pause is a pause for a purpose. Liquid Retime therefore:
+Pauses, holds and pacing are not slack by default. A pause is a pause for a purpose. Scene Carving therefore:
 
 - Keeps the **relative rhythm**. Removals are spread out, the film's shot-length signature, act proportions and pause rank order are preserved, and long holds still feel long *relative to the rest of the film*.
 - Keeps the **mood**. The arousal and valence curve and the music's continuity survive.
@@ -28,7 +28,7 @@ Pauses, holds and pacing are not slack by default. A pause is a pause for a purp
 - It is driven by famous music.
 - Its long, near-silent takes stretch time *on purpose* (Pezzotta 2017).
 
-An energy based on motion or dialogue would gut it. If Liquid Retime can shorten *2001* while keeping its awe and stillness, it can shorten almost anything. Whether a retimed *2001* should stay contemplative or move toward modern pacing is an open question, so it is a **pace knob**.
+An energy based on motion or dialogue would gut it. If Scene Carving can shorten *2001* while keeping its awe and stillness, it can shorten almost anything. Whether a retimed *2001* should stay contemplative or move toward modern pacing is an open question, so it is a **pace knob**.
 
 *2001* is a private benchmark run on a personal copy, and its results are never shared.
 
@@ -66,7 +66,7 @@ These are four scores, not a ranking. [DEFINITION.md §8](DEFINITION.md#8-succes
 
 Altering films has a long and contested history: colorization, pan-and-scan, moral rights, *CleanFlicks v. Soderbergh* (2006), the US Family Movie Act, and Japan's 2021–22 "fast movie" prosecutions. See [research/landscape.md §3](research/landscape.md#3-ethics-and-law-of-altering-films).
 
-Liquid Retime is a **personal and open-source tool** that renders files for **personal use** from the user's own copy. Shareable demos use public-domain or CC-BY material only. The original is never modified.
+Scene Carving is a **personal and open-source tool** that renders files for **personal use** from the user's own copy. Shareable demos use public-domain or CC-BY material only. The original is never modified.
 
 ## Who
 

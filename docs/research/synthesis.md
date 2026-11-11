@@ -1,4 +1,4 @@
-# Research synthesis: what Liquid Retime borrows, rejects and adds
+# Research synthesis: what Scene Carving borrows, rejects and adds
 
 > This summary pulls together the three research scans and maps them onto the agreed model in [DEFINITION.md](../DEFINITION.md).
 > Sources and links are in [video-and-editing.md](video-and-editing.md) (V), [audio-and-speech.md](audio-and-speech.md) (A) and [landscape.md](landscape.md) (L).
@@ -69,7 +69,7 @@
 | Distributable playback-time maps | Family Movie Act / ClearPlay model | v1 renders a file for personal use. The legal analysis is kept for the record. |
 | Reordering shots, trailers, highlight selection | Trailer generation, OpusClip, summarization benchmarks | Chronology is preserved, and the goal is a whole work, not highlights. |
 
-## 3. Combined gap: why Liquid Retime is new
+## 3. Combined gap: why Scene Carving is new
 
 No existing work or product does all of the following at once:
 

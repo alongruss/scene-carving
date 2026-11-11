@@ -1,11 +1,11 @@
 # Prior art: video, retargeting and film editing
 
-> Part of the [Liquid Retime research survey](README.md) (scan of 2026-11-10).
+> Part of the [Scene Carving research survey](README.md) (scan of 2026-11-10).
 > Scope: the visual, video and film-editing side of shortening a finished film while keeping one clock per frame, using no synthesized pixels, and preserving the director's rhythm.
 >
 > **Verification:** every URL came from a search result or a direct fetch. † means the DOI was also checked against Crossref (title, authors and venue matched). **UNVERIFIED** marks claims found only in secondary sources. The Adobe Morph Cut help page appears in search results but returned 403 when fetched.
 >
-> **Status for Liquid Retime:** some items below are recorded for contrast only, because the [decisions](../DECISIONS.md) rule them out. Those are frame interpolation, morph cuts, multi-clock seams and subject speed-up. They are tagged *(contrast / not used)*.
+> **Status for Scene Carving:** some items below are recorded for contrast only, because the [decisions](../DECISIONS.md) rule them out. Those are frame interpolation, morph cuts, multi-clock seams and subject speed-up. They are tagged *(contrast / not used)*.
 
 ---
 
@@ -28,7 +28,7 @@
 
 **Shamir & Sorkine 2009** — "Visual media retargeting", *SIGGRAPH Asia Courses*.
 - Link: https://doi.org/10.1145/1665817.1665828 †
-- A survey course. It shows the field has been almost entirely *spatial* (aspect ratio), which is useful for positioning Liquid Retime.
+- A survey course. It shows the field has been almost entirely *spatial* (aspect ratio), which is useful for positioning Scene Carving.
 
 **Rubinstein, Gutierrez, Sorkine & Shamir 2010** — "A comparative study of image retargeting" (RetargetMe), *ACM TOG* 29(6).
 - Links: https://doi.org/10.1145/1882261.1866186 † · https://people.csail.mit.edu/mrub/retargetme/
@@ -50,7 +50,7 @@
 **Li, Ishwar & Konrad 2009** — "Video condensation by ribbon carving", *IEEE TIP* 18(11):2572–2583.
 - Link: https://doi.org/10.1109/TIP.2009.2026677 †
 - What it does: carves "ribbons", seams in (x or y, t), using an activity-aware cost, dynamic programming, and a sliding window for streams.
-- **Closest prior "temporal seam carving".** Borrow the activity cost, the dynamic programming and the streaming window. Liquid Retime restricts ribbons to *flat, full-frame* removal, the degenerate case of ribbon carving.
+- **Closest prior "temporal seam carving".** Borrow the activity cost, the dynamic programming and the streaming window. Scene Carving restricts ribbons to *flat, full-frame* removal, the degenerate case of ribbon carving.
 
 **Chen & Sen 2008** — "Video carving", *Eurographics Short Papers*.
 - Links: https://doi.org/10.2312/egs.20081022 · PDF https://web.ece.ucsb.edu/~psen/Papers/EG08_VideoCarving.pdf
@@ -60,7 +60,7 @@
 **Lu, Cole, Dekel, Xie, Zisserman, Salesin, Freeman & Rubinstein 2020** — "Layered neural rendering for retiming people in video", *ACM TOG* 39(6), SIGGRAPH Asia.
 - Link: https://arxiv.org/abs/2009.07833
 - What it does: splits a video into per-person RGBA layers so each person can be sped up, slowed down or frozen.
-- *(contrast / not used)* This is exactly the subject-time distortion Liquid Retime forbids.
+- *(contrast / not used)* This is exactly the subject-time distortion Scene Carving forbids.
 
 ## 3. Content-aware fast-forward and adaptive playback speed
 
@@ -139,7 +139,7 @@
 **Argaw, Soldan, Pardo, Zhao, Caba Heilbron, Chung & Ghanem 2024** — "Towards automated movie trailer generation", *CVPR*.
 - Link: https://arxiv.org/abs/2404.03477
 - What it does: a Trailer Generation Transformer selects and *reorders* shots as a sequence-to-sequence task.
-- *(contrast)* It reorders; Liquid Retime keeps chronology.
+- *(contrast)* It reorders; Scene Carving keeps chronology.
 
 **Bain, Nagrani, Brown & Zisserman 2020** — "Condensed Movies: Story based retrieval with contextual embeddings", *ACCV*.
 - Link: https://arxiv.org/abs/2005.04208
@@ -303,7 +303,7 @@
 - **Continuity editing / 180° rule / match on action:** conventions that hide cuts by keeping space, direction and action consistent.
 - **J-cut / L-cut (split edit):** the audio leads or trails the picture cut.
 - **Cutaway / insert:** a covering shot used to hide a cut in the main action.
-- **Morph cut / hidden transition:** a synthesized blend that hides a jump cut. Not used by Liquid Retime.
+- **Morph cut / hidden transition:** a synthesized blend that hides a jump cut. Not used by Scene Carving.
 - **Time remapping / speed ramp:** changing the playback rate inside a clip.
 - **Video texture:** an infinite or extended video made by jumping between similar frames.
 - **Edit blindness:** viewers failing to notice a cut.
