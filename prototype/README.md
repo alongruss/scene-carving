@@ -390,6 +390,54 @@ After the fixes, the longest unit in any film is 13 s, and credits are found onl
 | *Night of the Living Dead* | 99.7 → 99.7 | 99.7 → 99.7 | 90.6 → 94.7 | 66.6 → 72.5 |
 | *Tears of Steel* | 100 → 100 | 100 → 100 | 99.1 → 100 | 86.6 → 90.2 |
 
+**Measured after re-rendering all eight films** (real-word frames kept at 30%): *Detour* 59 → 63%, *His Girl Friday* 42 → 45%, *Night of the Living Dead* 91 → 95%. *Elephants Dream* now removes 1 sentence whole at 30%, down from 3.
+
+## Iteration 10: pluggable heals and a new bake-off (decision #67)
+
+**User:** "Also interpolate in pauses … we may in the future do something else. keep things modular." This followed [the frame-infilling research](../docs/research/frame-infilling-at-joins.md).
+
+**`prototype/heals.py`** defines one interface: `heal(a, b, a_end, b_end) -> (K frames, info)`.
+- `a`, `b` are the dissolve's co-timed handle pairs. `a_end`, `b_end` are the untouched frames just outside the window.
+- K frames in and K out, so length and sync stay exact.
+- A new heal is one function plus an entry in `HEALS`.
+
+**The heals:**
+
+| Heal | What it does | Endpoint (no-speech joins only, #67) |
+|---|---|---|
+| `dissolve` | today's heal | no |
+| `flowdissolve` | each co-timed pair aligned by OpenCV DIS flow, then blended with the dissolve's alpha | no |
+| `rifemorph` | each co-timed pair merged by RIFE 4.26 at the dissolve's alpha | no |
+| `flowinterp` | warp-only in-betweens of the end frames (DIS) | yes |
+| `rife` | warp-only in-betweens of the end frames (RIFE 4.26) | yes |
+
+**How the flow heals work:**
+- **Warp-only in-betweens:** forward flow projection (the larger motion wins collisions) plus per-side visibility. My first attempt used Super SloMo's linear flow combination at the output pixel, which split a fast-moving object in two.
+- **Film grain:** frames get a light blur (σ 1.2) before DIS. The forward-backward check counts only textured pixels, because flat areas have arbitrary flow and show no warp.
+- **Fallback:** a frame whose flow fails over 35% of its textured pixels gets the plain dissolve. Local failures are mostly occlusions, which visibility already handles. Earlier versions fell back locally, and the fallback showed as ghost slivers.
+
+**RIFE 4.26** comes from the official Practical-RIFE download, in `cache/rife/`, which git ignores.
+- `IFNet_HDv3.py` was read before use. Its output is `warped_img0 * mask + warped_img1 * (1 - mask)`, with the learned-residual path commented out, so it is warp-only.
+- `warp` is reimplemented in `heals.py`, so the Practical-RIFE repo isn't needed, and the weights are loaded with `weights_only=True`.
+- On the GTX 970M under torch 2.14.1+cu126 (whose arch list includes sm_50), it takes **0.24 s per 6-frame join at 640 px**. The research note estimated 2–3 s at 720p.
+
+**Synthetic check:** a textured square jumps 54 px between the end frames.
+- DIS measures 51 px.
+- `dissolve` shows two half-bright ghosts. All four new heals move one solid square across the window.
+
+**`prototype/bakeoff.py`, rebuilt on the registry:**
+- The patch and snap variants are gone (#59).
+- Each film gets up to 12 joins: half with speech, half without, spread over the jump size D.
+- Joins are taken at the speed-ramp carve fractions.
+- Speech cards get 4 versions (`hard`, `dissolve6`, `flowdissolve6`, `rifemorph6`); no-speech cards add `flowinterp6` and `rife6`.
+- Each card states whether there is speech, and the copied results include it.
+
+**Pages** (served by the `renders` preview config, port 8766):
+- `/tears_of_steel_720p/bakeoff/index.html`: 6 speech + 6 no-speech joins.
+- `/Detour/bakeoff/index.html`: 6 + 6, drawn from 1,457 candidate joins.
+
+Every new heal takes 0.2–3 s per join. On *Detour*, the flow heals fall back only on the three genuinely large jumps: two composition changes (D = 71 and 83) and one 28 px move.
+
 ## Open (needs eyes and ears, not metrics)
 
 - **Audio joins** are the expected first failure. Signal-only scoring has no beat or speech awareness: a 125 ms hiccup in music, or a clipped word, is invisible to these metrics. Listen to `_090`, `_075` and `_060`.

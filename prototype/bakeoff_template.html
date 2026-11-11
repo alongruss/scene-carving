@@ -28,7 +28,7 @@ textarea{width:100%;min-height:120px;font:13px ui-monospace,monospace;background
 <body><main>
 <div class="banner">PROTOTYPE — BLIND BAKE-OFF</div>
 <h1>Heal bake-off: what should a same-camera cut look like?</h1>
-<p class="lede">Each card shows the same 3 seconds around one mid-shot cut, healed six different ways. They're labelled A–F in a shuffled order. For each card, pick the version you'd notice <b>least</b> (best) and <b>most</b> (worst). The clips loop; unmute for sound (the audio is the same in every version except the snapped ones). When you're done, press <b>Reveal</b> to see which method was which, then <b>Copy results</b> and paste them in chat.</p>
+<p class="lede">Each card shows the same 3 seconds around one mid-shot cut, healed several different ways, labelled in a shuffled order. Cuts with someone speaking get four versions; cuts without speech get six, because two methods are only allowed where no one speaks. For each card, pick the version you'd notice <b>least</b> (best) and <b>most</b> (worst). The clips loop; unmute for sound (the audio is identical in every version of a card). When you're done, press <b>Reveal</b> to see which method was which, then <b>Copy results</b> and paste them in chat.</p>
 <div id="cards"></div>
 <div class="card">
   <div class="row"><button class="primary" id="reveal">Reveal methods</button><button id="copy">Copy results</button><span class="reveal" id="tally"></span></div>
@@ -41,7 +41,7 @@ const picks = {};
 const box = document.getElementById("cards");
 CARDS.forEach(c => {
   const el = document.createElement("div"); el.className = "card";
-  el.innerHTML = `<b>Cut ${c.join + 1}</b> <span class="reveal">· first appears at ${c.first_at} · skips ${c.skip_s} s</span><div class="grid"></div>`;
+  el.innerHTML = `<b>Cut ${c.join + 1}</b> <span class="reveal">· ${c.speech ? "speech at the cut" : "no speech at the cut"} · first appears at ${c.first_at} · skips ${c.skip_s} s</span><div class="grid"></div>`;
   const grid = el.querySelector(".grid");
   c.variants.forEach(v => {
     const d = document.createElement("div"); d.className = "v"; d.dataset.label = v.label;
@@ -65,7 +65,7 @@ document.getElementById("reveal").onclick = () => {
     const c = CARDS[i]; if (!c) return;
     el.querySelectorAll(".v").forEach(d => {
       const v = c.variants.find(x => x.label === d.dataset.label);
-      d.querySelector("[data-meta]").textContent = `${v.variant}` + (v.energy !== undefined ? ` · seam E ${v.energy} vs ghost ${v.ghost} · ${v.solve_s}s` : "") + (v.snap !== undefined ? ` · snap ${v.snap}f` : "");
+      d.querySelector("[data-meta]").textContent = `${v.variant}` + (v.flow_px !== undefined ? ` · flow ${v.flow_px} px · fallback ${Math.round(v.fallback * 100)}%` : "") + (v.solve_s !== undefined ? ` · ${v.solve_s} s` : "");
     });
   });
   const best = {}, worst = {};
@@ -73,7 +73,7 @@ document.getElementById("reveal").onclick = () => {
   document.getElementById("tally").textContent = "best: " + JSON.stringify(best) + " · worst: " + JSON.stringify(worst);
 };
 document.getElementById("copy").onclick = async () => {
-  const lines = CARDS.map(c => { const p = picks[c.join] || {}; return `cut ${c.join + 1} @${c.orig} best=${p.best ? name(c, p.best) : "-"} worst=${p.worst ? name(c, p.worst) : "-"}`; });
+  const lines = CARDS.map(c => { const p = picks[c.join] || {}; return `cut ${c.join + 1} @${c.orig} ${c.speech ? "speech" : "no-speech"} best=${p.best ? name(c, p.best) : "-"} worst=${p.worst ? name(c, p.worst) : "-"}`; });
   const txt = "bake-off results\n" + lines.join("\n");
   document.getElementById("out").value = txt;
   try { await navigator.clipboard.writeText(txt); } catch (e) {}
