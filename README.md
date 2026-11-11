@@ -1,6 +1,6 @@
-# Liquid Retime
+# Scene Carving – Liquid Retiming
 
-**Seam carving for time.** Put a long film in and get a shorter one out. Liquid Retime carves away the least noticeable, least important seams of picture and audio, from a single "umm" or a static hold up to a whole side scene. The director's rhythm, mood and plot are kept intact, and nobody should see the edits.
+**Seam carving for time.** Put a long film in and get a shorter one out. Scene Carving carves away the least noticeable, least important seams of picture and audio, from a single "umm" or a static hold up to a whole side scene. The director's rhythm, mood and plot are kept intact, and nobody should see the edits.
 
 It is inspired by liquid rescale and [seam carving](https://en.wikipedia.org/wiki/Seam_carving). The north-star test is *2001: A Space Odyssey*.
 
@@ -111,4 +111,4 @@ All are legal to keep and share except *2001*, which stays private.
 
 ## Usage and rights
 
-Liquid Retime is for retiming **your own copy for personal use**. Shareable demos use public-domain or CC-BY films only. See [docs/VISION.md](docs/VISION.md#ethics-and-law). The license is still to be decided.
+Scene Carving is for retiming **your own copy for personal use**. Shareable demos use public-domain or CC-BY films only. See [docs/VISION.md](docs/VISION.md#ethics-and-law). The license is still to be decided.

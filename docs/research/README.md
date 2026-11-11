@@ -1,12 +1,12 @@
-# Liquid Retime: research survey
+# Scene Carving: research survey
 
-A prior-art scan for Liquid Retime: seam carving in the time domain for finished films. It covers academic work, products, culture, law, evaluation methods and test material.
+A prior-art scan for Scene Carving: seam carving in the time domain for finished films. It covers academic work, products, culture, law, evaluation methods and test material.
 
 ## Contents
 
 | Doc | Scope |
 |---|---|
-| [synthesis.md](synthesis.md) | **Start here.** What we borrow at each pipeline stage, what we rejected and why, and the combined gap that makes Liquid Retime new. |
+| [synthesis.md](synthesis.md) | **Start here.** What we borrow at each pipeline stage, what we rejected and why, and the combined gap that makes Scene Carving new. |
 | [video-and-editing.md](video-and-editing.md) | Seam carving lineage, temporal retargeting and video condensation, adaptive fast-forward and hyperlapse, summarization and trailers, computational editing and hiding cuts, shot/scene/speaker detection, perception and film theory. |
 | [audio-and-speech.md](audio-and-speech.md) | Time-scale modification (reference only), non-uniform speech compression, pause and gap floors, silence and filler tools, music retargeting and beat tracking, cinematic stem separation (analysis only), the speech timing pipeline, A/V sync thresholds, GPU support on the development laptop. |
 | [landscape.md](landscape.md) | Existing products, evidence on pacing and attention, ethics and law of altering films, narrative and affect understanding, local models on modest hardware, evaluation methods, legal test corpus, interchange formats. |
@@ -35,4 +35,4 @@ Each doc ends with a **terminology** list and a **gap analysis**. The project's 
 
 - Hardware and model facts (PyTorch Maxwell support, CTranslate2 precision rules, throughput estimates) date quickly. Re-check them before implementation.
 - Throughput numbers for the GTX 970M are **arithmetic estimates**, not benchmarks.
-- The legal notes are a summary for orientation, **not legal advice**. Liquid Retime currently renders files for personal use only. *2001: A Space Odyssey* is a private benchmark, and results from copyrighted films are not shared.
+- The legal notes are a summary for orientation, **not legal advice**. Scene Carving currently renders files for personal use only. *2001: A Space Odyssey* is a private benchmark, and results from copyrighted films are not shared.

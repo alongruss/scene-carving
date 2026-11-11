@@ -1,15 +1,15 @@
 # Landscape: products, culture, law, semantics, evaluation, test material
 
-> Part of the [Liquid Retime research survey](README.md) (scan of 2026-11-10).
+> Part of the [Scene Carving research survey](README.md) (scan of 2026-11-10).
 > **Legend:** ✔ = fetched and content confirmed. (s) = URL taken from search results, either not fetched or fetch blocked (Adobe helpx returns 403). UNVERIFIED = could not confirm. **This is not legal advice.**
 >
-> **Status for Liquid Retime:** the [decisions](../DECISIONS.md) chose a **rendered file for personal use** as the output, not a distributable playback-time map. The legal findings in §3 explain why *2001* stays a private benchmark and why results made from copyrighted films are not shared.
+> **Status for Scene Carving:** the [decisions](../DECISIONS.md) chose a **rendered file for personal use** as the output, not a distributable playback-time map. The legal findings in §3 explain why *2001* stays a private benchmark and why results made from copyrighted films are not shared.
 
 ---
 
 ## 1. Existing products and tools
 
-| Tool / URL | What it actually does | What it lacks vs. Liquid Retime |
+| Tool / URL | What it actually does | What it lacks vs. Scene Carving |
 |---|---|---|
 | **Auto-Editor** ✔ https://github.com/WyattBlue/auto-editor | CLI written in Nim, released into the public domain (Unlicense). Cuts by audio loudness and/or motion thresholds. Exports Premiere, Resolve, FCP, Shotcut and Kdenlive projects, plus CMX 3600 EDL. | No semantics: it treats silence as unimportant. Its exporters are a reference implementation. |
 | **Descript: Shorten word gaps** ✔ https://help.descript.com/hc/en-us/articles/10164807277453-Shorten-word-gaps · **Remove filler words** (s) https://help.descript.com/hc/en-us/articles/10164806394509-Remove-filler-words | Gaps longer than a threshold are cut to a target length (e.g. 200 ms). Filler removal has an "avoid harsh cuts" option. Uses cloud AI credits. | Speech only, with a fixed gap rule. Ignores dramatic pauses, music and picture. |
@@ -91,7 +91,7 @@
 - Ripping *2001* from disc is not covered (VidAngel).
 - Honest labelling ("Retimed: X of Y min") and one-click revert answer the moral-rights and Apatow/Bird objections.
 
-**Decision taken:** Liquid Retime renders files for **personal use**. *2001* is a private benchmark whose results are never shared. Shareable demos use public-domain or CC-BY material only.
+**Decision taken:** Scene Carving renders files for **personal use**. *2001* is a private benchmark whose results are never shared. Shareable demos use public-domain or CC-BY material only.
 
 ## 4. Narrative and affect understanding (for importance and mood scoring)
 
@@ -223,7 +223,7 @@
 - **Continuity editing:** cutting rules that hide cuts (match on action, eyeline, 180° rule).
 - **Edit blindness:** failing to notice cuts.
 - **Jump cut:** a discontinuous cut within one shot. **J/L-cut:** audio leads or trails the picture cut.
-- **Room tone:** ambient background used to fill seams. Liquid Retime never fills seams; carve-only.
+- **Room tone:** ambient background used to fill seams. Scene Carving never fills seams; carve-only.
 - **Director's cut / final cut:** the director's version / the contractual right to decide the released version.
 - **Pan-and-scan / letterboxing:** cropping vs. matting widescreen for 4:3.
 - **Colorization:** adding colour to black-and-white films.
@@ -250,7 +250,7 @@ Every product above falls into one of these buckets:
 - Repairing or extending a single seam (Morph Cut, Generative Extend, Remix).
 - Research summaries a few minutes long (Papalampidi, CinemaGazer).
 
-Nothing targets *finished narrative features as whole works*. What Liquid Retime could uniquely offer:
+Nothing targets *finished narrative features as whole works*. What Scene Carving could uniquely offer:
 
 1. **Any runtime, with graceful escalation:** micro-trims, then holds, then lines, then interleaved beats, then scenes, always taking the least noticeable and least important seam first.
 2. **Mood preservation as an explicit term:**

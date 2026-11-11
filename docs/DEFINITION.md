@@ -1,4 +1,4 @@
-# Liquid Retime: definition
+# Scene Carving: definition
 
 > **Status:** definition v0.2, 2026-11-10.
 > - It was agreed in two grilling sessions and a prior-art scan.
@@ -9,7 +9,7 @@
 
 ## 1. One-line definition
 
-**Liquid Retime carves time out of a finished film.** It removes scored seams of picture and audio, least noticeable and least important first. The result is shorter but keeps the director's rhythm, mood and plot, and nobody can see the edits. It is seam carving (liquid rescale) applied to the time axis.
+**Scene Carving carves time out of a finished film.** It removes scored seams of picture and audio, least noticeable and least important first. The result is shorter but keeps the director's rhythm, mood and plot, and nobody can see the edits. It is seam carving (liquid rescale) applied to the time axis.
 
 ## 2. Principles
 
