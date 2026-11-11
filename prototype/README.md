@@ -299,6 +299,56 @@ The method counts are identical across all three distortions. Two bugs were foun
 
 **Cascade, PAL-distorted subtitles** (up to 22 s off by the end): aligned back, they give an **identical carve** — 1198 seams, the same line metrics.
 
+## Iteration 8: seven more films (decision #65)
+
+**User:** "let's test on a different movie" → a public-domain film → "do all of them but also more short 10min videos".
+
+`prototype/batch.py` runs transcribe → align (if subtitles) → carve + render at 720p over seven films. The subtitles for the four public-domain films are archive.org's machine-made `.asr.srt` captions.
+
+| Film | Length | Speech | Subtitles |
+|---|---|---|---|
+| *Duck and Cover* (1951) | 9.2 min | 71% | machine captions |
+| *Elephants Dream* (CC BY) | 10.9 min | 17% | none |
+| *Big Buck Bunny* (CC BY) | 9.9 min | 0% | none |
+| *Sintel* (CC BY) | 14.8 min | 2% | none |
+| *Detour* (1945) | 67.6 min | 48% | machine captions |
+| *His Girl Friday* (1940) | 91.7 min | 67% | machine captions |
+| *Night of the Living Dead* (1968) | 95.9 min | 28% | machine captions |
+
+**Bugs found on the first pass, all fixed:**
+1. **Dark films read as credits.**
+   - The stand-in took any dark block of 20 s or more in the first 10% or last 25% as credits. Speech inside credits is nearly free to cut.
+   - Noir and night films are dark throughout: *Detour* lost its narrated ending from 57:19, and *Night of the Living Dead* its climax from 74:24.
+   - Real credits measured 0% speech, the misread scenes 16–90%. Now a credit block has at most 15% speech (`CREDITS_MAX_SPEECH`) and must chain to the first or last frame with gaps of at most 90 s (`CREDITS_CHAIN_S`). *Sintel*'s credits end 72 s before the film does.
+2. **Machine captions chained into minutes-long units.**
+   - The captions run back to back, break lines mid-sentence and are barely punctuated (0.02–0.07 marks per word, against 0.41 for *Tears of Steel*'s subtitles). Once aligned, 45–77% overlap a neighbour, and the overlap merge chained them into units of up to 265 s. Removing a unit whole was then too expensive, so the cascade cut into words.
+   - Now a file below `SUB_PUNCT_MIN` (0.15) is treated as machine-made. Whisper's sentences stay the units. A caption line adds protection only when Whisper, prompted with the line's text, hears it; VAD alone does not back machine-guessed text, and the unheard lines were mostly junk ("The.", "A listen.").
+3. **Unit building**, which affected every film:
+   - Whisper can scatter one segment's words over music. In *Elephants Dream*, the six words of "Don't you ever get tired of this?" spanned 69 s. Now a silence over 2 s ends a unit (`SENT_GAP_S`).
+   - Units that only touch on a frame are no longer merged. Abutting Whisper segments had built *Detour*'s 163 s narration unit.
+
+After the fixes, the longest unit in any film is 13 s, and credits are found only at the ends. *Night of the Living Dead*'s credits are its last 1.5 min, after the final shot. *Detour*'s are its opening titles (1:07–1:35). *His Girl Friday* has none.
+
+**Before → after**, as real-word frames kept and sentences cut into:
+
+| Film | 90% | 75% | 60% | 30% |
+|---|---|---|---|---|
+| *Detour* | 92% / 24 → **100% / 0** | 88% / 24 → **100% / 1** | 82% / 25 → **96% / 1** | 47% / 121 → **59% / 14** |
+| *His Girl Friday* | 97% / 7 → **100% / 3** | 86% / 29 → **92% / 9** | 72% / 176 → **78% / 25** | 36% / 183 → **42% / 92** |
+| *Night of the Living Dead* | 100% / 1 → **100% / 0** | 89% / 18 → **100% / 0** | 89% / 18 → **100% / 0** | 67% / 26 → **91% / 1** |
+| *Duck and Cover* | 96% / 0 → **99% / 0** | 86% / 0 → **89% / 0** | 75% / 1 → **75% / 0** | 41% / 35 → **41% / 17** |
+| *Elephants Dream* | 100% → 100% | 100% → 100% | 100% → 100% | 86% → **99%** (whole sentences removed 25 → 3) |
+
+- "Story kept" was flattering on the first pass because misread credits were left out of it. *Night of the Living Dead* at 90% now reads 91%, against a false 100%.
+- *Tears of Steel*, *Sintel* and *Big Buck Bunny* are unchanged. *Tears of Steel* still keeps 75/76 lines at 30%, none partly cut, and it now also drops the "Be..." stutter.
+- All renders have exact lengths, with picture and sound within one frame.
+
+**Limits and open points:**
+- **Speech-dense films can't reach 30% without losing speech.** *His Girl Friday* is 67% words and *Duck and Cover* 71%, so 30% keeps only about 40% of the words. They now go as whole sentences, least plot-important first (2,493 removed whole, 92 cut into).
+- **The subtitle-line metric is misleading for machine captions.** "Partly cut" counts any removed frame inside a padded caption span, mostly pauses. Real-word frames are the honest measure there.
+- **"very, very"** is still tagged as a stutter repeat.
+- **Alignment of machine captions** still over-segments (40 pieces on *Detour*). It no longer drives the units, so this only affects the line report.
+
 ## Open (needs eyes and ears, not metrics)
 
 - **Audio joins** are the expected first failure. Signal-only scoring has no beat or speech awareness: a 125 ms hiccup in music, or a clipped word, is invisible to these metrics. Listen to `_090`, `_075` and `_060`.

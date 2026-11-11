@@ -60,6 +60,10 @@ VISIBLE_JUMP_PENALTY = 4.0           # extra cost at the most visible jumps
 CREDITS_DARK = 0.42                  # dark-pixel share of a title/credit frame
 CREDITS_MIN_S = 20.0                 # a title/credit block lasts at least this
 CREDITS_STORY_W = 0.05               # story weight inside such a block
+CREDITS_MAX_SPEECH = 0.15            # a dark block with more dialogue than this is story
+CREDITS_CHAIN_S = 90.0               # credit blocks chain to the film's ends with gaps <= this
+SUB_PUNCT_MIN = 0.15                 # punctuation per word: real subtitles ~0.4, machine captions <0.1
+SENT_GAP_S = 2.0                     # a silence this long between words ends a sentence unit
 SMALL_W = 160                        # analysis frame width
 XFADE_MS = 10                        # audio crossfade
 DISSOLVE_H = 3                       # picture dissolve = 2*H frames at same-shot joins
@@ -280,6 +284,10 @@ def speech_layers(words_path, n, fps, srt_path=None):
     sents, cur = [], []
     for s in segs:
         for w in s["words"]:
+            # a long silence ends a unit too (Whisper can scatter one segment's words over music)
+            if cur and w["start"] - cur[-1]["end"] > SENT_GAP_S:
+                sents.append(cur)
+                cur = []
             cur.append(w)
             # "..." is a trailing-off / false start inside a sentence, not a sentence end
             if w["word"].rstrip('"\')').endswith((".", "?", "!")) and not w["word"].endswith(".."):
@@ -322,24 +330,40 @@ def speech_layers(words_path, n, fps, srt_path=None):
         sent_mask[fs:fe + 1] = True
         sentences.append((fs, fe, float(im), " ".join(w["word"] for w in s)))
     cues_out = []
+    # Machine captions (rolling, back-to-back cues broken mid-sentence, almost no
+    # punctuation) chain into minutes-long "lines" once aligned. For those, Whisper's
+    # sentences stay the units and a caption line only adds speech Whisper never heard.
+    sp_fs = np.array([int(s[0]["start"] * fps) for s in sents], np.int64)
+    sp_fe = np.array([int(np.ceil(s[-1]["end"] * fps)) - 1 for s in sents], np.int64)
+    heard_by_asr = lambda fs, fe: bool(((sp_fs <= fe) & (sp_fe >= fs)).any())
+    punct_rate = lambda texts: (sum(len(re.findall(r"[.?!,]", t)) for t in texts)
+                                / max(1, sum(len(t.split()) for t in texts)))
+    structured = True
     if srt_path and str(srt_path).endswith(".json") and Path(srt_path).exists():
         # Subtitles anchored to the audio by align_subs.py (decision #62): precise lines
         # ("asr"/"prompted") protect their actual word frames; coarser lines protect
         # their whole aligned span.
         al = json.loads(Path(srt_path).read_text(encoding="utf-8"))
+        structured = punct_rate([L["text"] for L in al["lines"]]) >= SUB_PUNCT_MIN
         words = [w for s in sents for w in s]
         mids = np.array([(w["start"] + w["end"]) / 2 for w in words]) if words else np.zeros(0)
         units, used = [], np.zeros(len(words), bool)
         for L in al["lines"]:
             fs, fe = int(L["start"] * fps), min(n - 1, int(np.ceil(L["end"] * fps)) - 1)
+            cues_out.append((fs, fe, L["text"], L["method"]))
+            # Machine captions: Whisper's own sentences cover what it heard, and a line it
+            # missed counts only if Whisper hears it when told what to listen for ("prompted");
+            # VAD alone is too weak to back machine-guessed text.
+            if not structured and (L["method"] != "prompted" or heard_by_asr(fs, fe)):
+                continue
             if L["method"] in ("asr", "prompted") and L["words"]:
                 for w in L["words"]:
                     word_mask[int(w["start"] * fps):min(n, int(np.ceil(w["end"] * fps)))] = True
             else:
                 word_mask[fs:fe + 1] = True
-            used |= (mids >= L["start"] - 0.3) & (mids <= L["end"] + 0.3)
+            if structured:                     # (an unheard caption line overlaps no ASR sentence)
+                used |= (mids >= L["start"] - 0.3) & (mids <= L["end"] + 0.3)
             units.append([fs, fe, L["text"]])
-            cues_out.append((fs, fe, L["text"], L["method"]))
     elif srt_path and Path(srt_path).exists():
         # Subtitles are the authority on WHAT is said (decision #61): every subtitle line
         # becomes a protected unit. Heard by ASR -> its word timings set the span; unheard
@@ -347,17 +371,27 @@ def speech_layers(words_path, n, fps, srt_path=None):
         words = [w for s in sents for w in s]
         mids = np.array([(w["start"] + w["end"]) / 2 for w in words]) if words else np.zeros(0)
         units, used = [], np.zeros(len(words), bool)
-        for cs, ce, text in parse_srt(srt_path):
+        cues = parse_srt(srt_path)
+        structured = punct_rate([t for _, _, t in cues]) >= SUB_PUNCT_MIN
+        for cs, ce, text in cues:
             hit = np.flatnonzero((mids >= cs - 0.5) & (mids <= ce + 0.5))
             if len(hit):
                 fs = int(min(words[i]["start"] for i in hit) * fps)
                 fe = int(np.ceil(max(words[i]["end"] for i in hit) * fps)) - 1
-                used[hit] = True
             else:
                 fs, fe = int(cs * fps), int(np.ceil(ce * fps)) - 1
-                word_mask[fs:min(n, fe + 1)] = True
-            units.append([fs, min(n - 1, fe), text])
-            cues_out.append((fs, min(n - 1, fe), text, "asr" if len(hit) else "cue"))
+            fe = min(n - 1, fe)
+            cues_out.append((fs, fe, text, "asr" if len(hit) else "cue"))
+            if not structured:
+                continue                       # unaligned machine captions: Whisper alone sets the speech
+            if len(hit):
+                used[hit] = True
+            else:
+                word_mask[fs:fe + 1] = True
+            units.append([fs, fe, text])
+    if cues_out and not structured:
+        print(f"[speech] subtitles look machine-made ({punct_rate([c[2] for c in cues_out]):.2f} punctuation "
+              f"per word): Whisper sets the sentences; {len(units)} lines it caught only when prompted add protection")
     if cues_out:
         k = 0
         for s in sents:  # ASR speech outside every subtitle line stays protected, as its own unit
@@ -367,8 +401,11 @@ def speech_layers(words_path, n, fps, srt_path=None):
                 units.append([int(s[0]["start"] * fps), min(n - 1, int(np.ceil(s[-1]["end"] * fps)) - 1),
                               " ".join(w["word"] for w in s)])
         units.sort()
-        merged = []
+        merged, touch = [], int(0.25 * fps)
         for u in units:  # overlapping units merge into one
+            if merged and u[0] <= merged[-1][1] and u[1] > merged[-1][1] and merged[-1][1] - u[0] < touch:
+                merged.append([merged[-1][1] + 1, u[1], u[2]])   # merely touching: two units
+                continue
             if merged and u[0] <= merged[-1][1]:
                 merged[-1][1] = max(merged[-1][1], u[1])
                 merged[-1][2] += " " + u[2]
@@ -423,14 +460,30 @@ def parse_srt(path):
     return cues
 
 
-def credits_mask(dark, fps):
-    """Stand-in for the plot layer: long dark-dominant blocks near the film's ends."""
+def credits_mask(dark, fps, speech=None):
+    """Stand-in for the plot layer: title/credit blocks at the film's very ends.
+
+    A block is long, dark-dominant and nearly free of dialogue, and it connects to the
+    first or last frame through other such blocks with gaps of at most CREDITS_CHAIN_S.
+    Darkness alone is not enough: noir and night films are dark throughout.
+    """
     n = len(dark)
     sm = sliding_median(dark, int(fps)) > CREDITS_DARK
+    cands = [(s, e) for s, e in runs(sm)
+             if e - s >= CREDITS_MIN_S * fps and (s > 0.75 * n or e < 0.1 * n)]
+    quiet = lambda s, e: speech is None or speech[s:e].mean() <= CREDITS_MAX_SPEECH
+    G = int(CREDITS_CHAIN_S * fps)
     mask = np.zeros(n, bool)
-    for s, e in runs(sm):
-        if e - s >= CREDITS_MIN_S * fps and (s > 0.75 * n or e < 0.1 * n):
-            mask[s:e] = True
+    edge = 0                                   # opening titles, chained from the first frame
+    for s, e in cands:
+        if s - edge > G or not quiet(s, e):
+            break
+        mask[s:e], edge = True, e
+    edge = n                                   # end credits, chained back from the last frame
+    for s, e in reversed(cands):
+        if edge - e > G or not quiet(s, e):
+            break
+        mask[s:e], edge = True, s
     return mask
 
 
@@ -484,7 +537,7 @@ def cascade(F, fps, stop_fraction, words_path=None, srt_path=None):
     shot_start = np.searchsorted(shot, np.arange(n_shots), "left")
     shot_end = np.searchsorted(shot, np.arange(n_shots), "right") - 1
     loud_rank = rank_l(F["rms_db"])
-    credits = credits_mask(F["dark"], fps)
+    credits = credits_mask(F["dark"], fps, (word_mask & ~filler_mask) if len(sentences) else None)
     story = np.where(credits, CREDITS_STORY_W, 1.0)
     # Information = speech (charged per sentence below) + a little loudness for
     # music/effects. Motion is NOT information - it only makes joins visible.
