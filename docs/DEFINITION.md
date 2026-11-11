@@ -142,6 +142,11 @@ The cascade is **re-run** (not the analysis) when human marks or the pace knob c
   - `hard`: a mid-shot jump between near-identical frames, where a dissolve would only ghost.
   - `edge-trim`: the film's start or end.
   - ~~`patch`~~: a per-pixel switch-time graph cut between the same two handle streams ([research](research/patching-from-other-times.md)). **Rejected after a blind bake-off**: it was worst in 7 of 10 cuts, because the per-pixel switch shows as tearing. Better synthesis remains a future direction.
+  - **Candidates under test** (decision #67, [research](research/frame-infilling-at-joins.md)), each a pluggable heal module with the same interface (K handle frames in, K frames out, so length stays exact):
+    - `flow-dissolve`: the dissolve with each co-timed pair first aligned by optical flow. Where flow fails, it falls back to the plain dissolve.
+    - `interpolate`: warp-only in-betweens between the two end frames, at joins with **no speech** in the window only.
+
+    A blind bake-off against `dissolve` decides whether either is adopted.
 - **Standard review renders:** 90 / 75 / 60 / 30% of the original length.
 - Outputs:
   - the **shortened video file**, for personal use;
@@ -168,7 +173,7 @@ Carving is the main device. A gentle speed-up runs alongside it, set by the same
 
 | Constraint | Meaning |
 |---|---|
-| **No synthesis** | No frame interpolation, morph cuts, generated or looped ambience, or inpainting. Only original frames and samples, which may be *blended* at a join: a short audio crossfade, or an approximately 6-frame cross-dissolve at an unavoidable same-camera picture join. |
+| **No synthesis** | No generated frames, looped ambience or inpainting. Only original frames and samples, which may be *blended* at a join: a short audio crossfade, or an approximately 6-frame cross-dissolve at an unavoidable same-camera picture join. Under test (#67): the dissolve's pairs may be *warped* into line first, and warp-only in-betweens are allowed at joins with no speech. No learned residual, and no generative model. |
 | **No pitch change, no local speed change** | Pitch never changes. The only time-scale change is the film-wide speed of §3.6, applied to picture and sound together. Nothing is sped up locally, and speech is never sped up on its own. |
 | **Carve the original mix** | Audio seams cut the mixed soundtrack as-is. Stem separation exists only inside analysis. |
 | **Lip-sync never lost** | No A/V offset on sync-critical content. Validated with SyncNet-style measurement against EBU R37 (+40 ms / −60 ms). Exceeding it is a hard fail. |
