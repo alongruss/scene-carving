@@ -5,10 +5,11 @@ Variants per join, same 3 s of output around the cut (heals live in heals.py, de
   dissolve6       6-frame cross-dissolve of the co-timed handle pairs (current render)
   flowdissolve6   the same pairs, aligned by DIS optical flow before blending
   rifemorph6      the same pairs, merged by RIFE 4.26 (warp + mask) at the dissolve's alpha
-  flowinterp6     warp-only in-betweens of the two end frames (DIS)    } only at joins with
-  rife6           warp-only in-betweens of the two end frames (RIFE)   } no speech (#67)
+  flowinterp6     warp-only in-betweens of the two end frames (DIS), only at joins with no
+                  speech (#67)
 
-The earlier patch/snap variants were rejected (decision #59) and are gone.
+The earlier patch/snap variants were rejected (decision #59) and are gone. rife6 (RIFE
+in-betweens of the end frames) was dropped after the second bake-off (#68); it stays in heals.py.
 
 Run after carve_proto.py:
   .venv/Scripts/python prototype/bakeoff.py media/tears_of_steel_720p.mov
@@ -34,7 +35,7 @@ CTX = 36          # output frames before / after the join (3 s total at 24 fps)
 MAX_JOINS = 12    # per film: half with speech at the join, half without, spread over jump size
 SPEECH_PAD = 2    # frames of margin around a word when deciding "speech at the join"
 FRACTIONS = [0.9, 0.75, 0.6, 0.3, 0.2]
-VARIANTS = ["hard", "dissolve6", "flowdissolve6", "rifemorph6", "flowinterp6", "rife6"]
+VARIANTS = ["hard", "dissolve6", "flowdissolve6", "rifemorph6", "flowinterp6"]
 
 
 def decode(src, f0, count, fps, W):

@@ -225,3 +225,27 @@ HEALS = {"dissolve": dissolve, "flowdissolve": flowdissolve, "flowinterp": flowi
 
 def is_endpoint(name):
     return getattr(HEALS[name], "ENDPOINT", False)
+
+
+# Render default (decision #68): the RIFE-aligned dissolve runs on the GPU and is the path to
+# near-real-time; the DIS-aligned dissolve is the CPU fallback; the plain dissolve is last.
+RENDER_CHAIN = ["rifemorph", "flowdissolve", "dissolve"]
+
+
+def available(name):
+    """Can this heal run here? (RIFE needs PyTorch and the weights; flow heals need OpenCV.)"""
+    try:
+        if name in ("rife", "rifemorph"):
+            import torch  # noqa: F401
+            return (RIFE_DIR / "IFNet_HDv3.py").exists() and (RIFE_DIR / "flownet.pkl").exists()
+        if name in ("flowdissolve", "flowinterp"):
+            import cv2  # noqa: F401
+        return name in HEALS
+    except ImportError:
+        return False
+
+
+def pick(preferred=None):
+    """The first heal that can run, starting from `preferred`, then down RENDER_CHAIN."""
+    chain = ([preferred] if preferred else []) + [h for h in RENDER_CHAIN if h != preferred]
+    return next(h for h in chain if available(h))

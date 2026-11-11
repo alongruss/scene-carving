@@ -749,8 +749,10 @@ def keep_mask(order, n, fraction):
 
 
 def picture_plan(keep, F, rank_d, h=DISSOLVE_H):
-    """Output frame list + per-join strategy counts; 'dissolve' joins become
-    2h-frame cross-dissolves of original frames (handles keep length exact)."""
+    """Output frame list + per-join strategy counts; 'dissolve' joins become a 2h-frame
+    heal window of original frames (handles keep length exact). A window frame is the tuple
+    (A, B, alpha, p, q, t): the co-timed pair the plain dissolve blends, plus the join, so
+    render() can hand the whole window to a heal from heals.py (decision #68)."""
     n = len(keep)
     rs = runs(keep)
     out, run_pos = [], []
@@ -764,7 +766,7 @@ def picture_plan(keep, F, rank_d, h=DISSOLVE_H):
         (s0, e0), (s1, e1) = rs[k], rs[k + 1]
         p, q = e0 - 1, s1
         strat = join_strategy(p, q, F, rank_d)
-        if strat == 1 and (e0 - s0 < h or e1 - s1 < h or p + h >= n or q - h < 0):
+        if strat == 1 and (e0 - s0 < h or e1 - s1 < h or p + h >= n or q - h < 0 or p - h < 0 or q + h >= n):
             strat = 2  # no room for handles: falls back to a hard join
         counts[STRATEGIES[strat]] += 1
         if strat != 1:
@@ -775,7 +777,7 @@ def picture_plan(keep, F, rank_d, h=DISSOLVE_H):
             counts["hard"] += 1
             continue
         for j in range(2 * h):
-            out[j0 + j] = (p - h + 1 + j, q - h + j, (j + 0.5) / (2 * h))
+            out[j0 + j] = (p - h + 1 + j, q - h + j, (j + 0.5) / (2 * h), p, q, j)
         used[j0:j0 + 2 * h] = True
         dissolves += 1
     return out, counts
@@ -848,8 +850,13 @@ def report(order, F, aux, fps, fractions, path, slope=SPEED_SLOPE):
 
 
 # --- 4. RENDER ---------------------------------------------------------------
-def render(src, info, order, F, fractions, outdir, stem, render_height=None, slope=SPEED_SLOPE):
+def render(src, info, order, F, fractions, outdir, stem, render_height=None, slope=SPEED_SLOPE, heal=None):
+    import heals as healmod
     n, rank_d = len(F["d"]), make_rank_d(F)
+    heal_name = healmod.pick(heal)
+    heal_fn = None if heal_name == "dissolve" else healmod.HEALS[heal_name]
+    dh = DISSOLVE_H
+    print(f"[render] same-shot joins healed by: {heal_name}" + (f" (asked for {heal})" if heal and heal != heal_name else ""))
     fps, W, H = info["fps"], info["w"], info["h"]
     W0, H0 = W, H
     if render_height and render_height < H:
@@ -902,8 +909,26 @@ def render(src, info, order, F, fractions, outdir, stem, render_height=None, slo
             if isinstance(it, tuple):
                 need[it[0]] += 1
                 need[it[1]] += 1
+                if heal_fn and it[5] == 0:          # a heal also sees the untouched end frames
+                    need[it[3] - dh] += 1
+                    need[it[4] + dh] += 1
     cache, ptr = {}, {fr: 0 for fr in fractions}
     fb = W * H * 3 // 2
+    if heal_fn:
+        import cv2
+        to_rgb = lambda f: cv2.cvtColor(cache[f].reshape(H * 3 // 2, W), cv2.COLOR_YUV2RGB_I420).astype(np.float32)
+        to_yuv = lambda im: cv2.cvtColor(np.clip(im + 0.5, 0, 255).astype(np.uint8), cv2.COLOR_RGB2YUV_I420).tobytes()
+    healed, heal_s, heal_n = {fr: {} for fr in fractions}, 0.0, 0
+
+    def heal_window(p, q):
+        a = [to_rgb(p - dh + 1 + t) for t in range(2 * dh)]
+        b = [to_rgb(q - dh + t) for t in range(2 * dh)]
+        frames, _ = heal_fn(a, b, to_rgb(p - dh), to_rgb(q + dh))
+        for x in (p - dh, q + dh):
+            need[x] -= 1
+            if need[x] == 0:
+                cache.pop(x, None)
+        return [to_yuv(f) for f in frames]
     dec = subprocess.Popen(["ffmpeg", "-v", "error", "-i", str(src), *vf, "-f", "rawvideo",
                             "-pix_fmt", "yuv420p", "-"], stdout=subprocess.PIPE)
     t0 = time.time()
@@ -918,11 +943,23 @@ def render(src, info, order, F, fractions, outdir, stem, render_height=None, slo
             while pt < len(plan):
                 it = plan[pt]
                 if isinstance(it, tuple):
-                    A, B, al = it
-                    if max(A, B) > i:
-                        break
-                    mix = cache[A].astype(np.float32) * (1 - al) + cache[B].astype(np.float32) * al
-                    enc.stdin.write((mix + 0.5).astype(np.uint8).tobytes())
+                    A, B, al, jp, jq, t = it
+                    if heal_fn:
+                        win = healed[fr]
+                        if (jp, jq) not in win:
+                            if jq + dh > i:              # the whole window must be decoded
+                                break
+                            t1 = time.time()
+                            win[(jp, jq)] = heal_window(jp, jq)
+                            heal_s, heal_n = heal_s + time.time() - t1, heal_n + 1
+                        enc.stdin.write(win[(jp, jq)][t])
+                        if t == 2 * dh - 1:
+                            del win[(jp, jq)]
+                    else:
+                        if max(A, B) > i:
+                            break
+                        mix = cache[A].astype(np.float32) * (1 - al) + cache[B].astype(np.float32) * al
+                        enc.stdin.write((mix + 0.5).astype(np.uint8).tobytes())
                     for x in (A, B):
                         need[x] -= 1
                         if need[x] == 0:
@@ -941,6 +978,8 @@ def render(src, info, order, F, fractions, outdir, stem, render_height=None, slo
     dec.wait()
     for fr in fractions:
         (outdir / f"{stem}_{int(fr*100):03d}.wav").unlink()
+    if heal_n:
+        print(f"[render] {heal_name}: {heal_n} joins in {heal_s:.0f}s ({heal_s / heal_n:.2f}s per join)")
     print(f"[render] done ({time.time()-t0:.0f}s)")
 
 
@@ -979,6 +1018,8 @@ def main():
     ap.add_argument("--render-height", type=int, help="downscale renders to this height (e.g. 720)")
     ap.add_argument("--speed-slope", type=float, default=SPEED_SLOPE,
                     help="film-wide speed = 1 + (1 - target) * slope (default 0.125: 1.1x at 20%%; 0 = carve only)")
+    ap.add_argument("--heal", help="heal for same-shot joins (heals.py); default: rifemorph, falling back to "
+                                   "flowdissolve without PyTorch/GPU weights, then the plain dissolve")
     args = ap.parse_args()
     src = Path(args.src)
     stem = src.stem
@@ -998,7 +1039,7 @@ def main():
     report(order, F, aux, info["fps"], args.fractions, outdir / "report.txt", args.speed_slope)
     viewer(order, F, aux, info, args.fractions, outdir, stem, args.speed_slope)
     if not args.no_render:
-        render(src, info, order, F, args.fractions, outdir, stem, args.render_height, args.speed_slope)
+        render(src, info, order, F, args.fractions, outdir, stem, args.render_height, args.speed_slope, args.heal)
 
 
 if __name__ == "__main__":
