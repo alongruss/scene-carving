@@ -1,4 +1,4 @@
-"""PROTOTYPE - throwaway code. Liquid Retime carve-only feasibility check.
+"""PROTOTYPE - throwaway code. Scene Carving (liquid retiming) carve-only feasibility check.
 
 QUESTION
     Can a film be shortened by carving ONLY original whole frames and
