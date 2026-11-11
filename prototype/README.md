@@ -438,6 +438,38 @@ After the fixes, the longest unit in any film is 13 s, and credits are found onl
 
 Every new heal takes 0.2–3 s per join. On *Detour*, the flow heals fall back only on the three genuinely large jumps: two composition changes (D = 71 and 83) and one 28 px move.
 
+**Verdict** (the user's blind picks; 17 best and 19 worst picks over 24 joins):
+
+| Method | Best | Worst | Best, speech joins | Worst, no-speech joins |
+|---|---|---|---|---|
+| `flowdissolve6` | **7/17** | 2/19 | 3/7 | 0/11 |
+| `rifemorph6` | **6/17** | 2/19 | 3/7 | 1/11 |
+| `flowinterp6` | 2/10 | 2/11 | — | 2/11 |
+| `rife6` | 0/10 | 1/11 | — | 1/11 |
+| `dissolve6` | 1/17 | **6/19** | 1/7 | **5/11** |
+| `hard` | 1/17 | **6/19** | 0/7 | 2/11 |
+
+- The aligned dissolves won 13 of 17 best picks. The plain dissolve, the earlier winner, now ties the hard cut for worst.
+- `hard` won once: on the largest jump (D = 27), where every blend shows.
+- Five cards went unpicked, mostly tiny jumps (D 0–5).
+
+**Decision #68.** The user's words: "flowdissolve & rifemorph are both good. I want something that will preform near real-time with a better rig".
+
+Measured on real *Tears of Steel* frames, per frame:
+
+| Heal | 640 px | 1280×534 | Runs on |
+|---|---|---|---|
+| `rifemorph` | 40 ms (25 fps) | 121 ms | GPU |
+| `flowdissolve` | 182 ms | 674 ms | CPU |
+
+So `render()` now hands every dissolve window to `heals.pick()`.
+- **The chain:** `rifemorph` first, then `flowdissolve` without PyTorch or the weights, then the plain dissolve. `--heal` overrides it.
+- **Colour:** window frames go YUV → RGB → heal → YUV. The round trip changes pixels by 0.00–0.02 levels on average, so there is no colour flash.
+- **Result on *Duck and Cover*:** 89 windows over four lengths healed in 26 s (0.29 s per join). Frame counts are identical to the plain-dissolve render, so length and sync are unchanged.
+- **One example:** on the largest jump in the 60% render, a scene change the shot detector missed, `rifemorph` gives a quick clean switch where the plain dissolve gives four frames of double exposure.
+
+`flowinterp6` stays in the bake-off as a pause-only candidate. `rife6` is dropped from it.
+
 ## Open (needs eyes and ears, not metrics)
 
 - **Audio joins** are the expected first failure. Signal-only scoring has no beat or speech awareness: a 125 ms hiccup in music, or a clipped word, is invisible to these metrics. Listen to `_090`, `_075` and `_060`.
