@@ -56,6 +56,7 @@ Analysis reads the film once and produces the **score map**: time-aligned layers
 - **Subtitle file** (SRT/VTT).
   - Authoritative dialogue text and timing, better than ASR. ASR word timing still places the cuts.
   - Every subtitle line is a protected unit. If ASR missed the line, its whole cue span is protected.
+  - **Machine-made captions are the exception** (decision #65). Auto-generated captions run back to back, break lines mid-sentence and are barely punctuated, so they say little about *where sentences are*. For them, the ASR sentences stay the units, and a caption line adds protection only where Whisper, prompted with its text, hears it.
   - **Anchored to the audio** (decision #62). Subtitle timing is coarse and release-dependent, so lines are aligned to *this* film's audio:
     - text anchors against the ASR words;
     - a framerate-ratio transform (PAL/NTSC) plus piecewise offsets for scenes added or cut;
@@ -96,7 +97,7 @@ The cascade repeatedly removes the cheapest remaining seam and records the order
 
    Hard-constraint violations make the cost infinite. Weights are self-calibrated per film. Lessons validated with the prototype:
    - **Mid-shot joins cost far more than trims at existing cuts.** A hard cut inside a same-camera shot, especially in a conversation, is very noticeable. So trimming a shot's or scene's start or end is preferred, and moving subjects near a join raise its cost further. This needs motion split into camera vs. subject motion.
-   - **Titles and credits score near-zero story importance**, so they go first, entirely.
+   - **Titles and credits score near-zero story importance**, so they go first, entirely. A block counts as credits only if it carries no dialogue and sits at the film's start or end (decision #65). Darkness alone is not credits: noir and night films are dark throughout.
    - **Information comes first, and motion is not information.**
      - Cutting into a word is very expensive, and pauses inside a sentence are costly.
      - A whole sentence is a seam (padded into its surrounding pauses), and removing it costs its plot score.

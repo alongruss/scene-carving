@@ -46,7 +46,14 @@ The full iteration log is `prototype/README.md` on branch `prototype/carve-only`
 - **Speech recognition misses lines under music**, so subtitles are the authority. Anchoring them to the audio recovered precise timing for the climax and the ending.
   - At 30% length, *Tears of Steel* keeps **75 of 76 subtitle lines intact, with none partly cut**.
   - Subtitles shifted, sped up for PAL, or containing an inserted scene re-align within ±0.25 s and give an identical carve.
-- **Limit found:** a narration-dense film (*Duck and Cover*, 73% speech) can't reach 30% by carving alone without losing speech.
+- **Eight films, from no dialogue to wall-to-wall talk.**
+  - *Sintel* keeps every spoken word down to 30%, and *Elephants Dream* keeps 99%.
+  - *Night of the Living Dead* cuts into no sentence down to 60%, dropping only four short lines (such as "Good.") whole, and keeps 91% of its words at 30%.
+  - *Detour* keeps every word at 90% and cuts into a single sentence at 75% and at 60%.
+- **Lessons from dark films and machine captions** (decision #65):
+  - Darkness alone is not credits.
+  - Auto-generated captions don't mark sentences, so the speech recognizer's sentences stay the units.
+- **Limit found:** a speech-dense film can't reach 30% by carving alone without losing speech. At 30%, *Duck and Cover* (71% speech) and *His Girl Friday* (67%) keep only about 40% of their words, dropped as whole sentences, least important first.
 
 ## Try the prototype
 
