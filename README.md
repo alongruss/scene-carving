@@ -26,7 +26,9 @@ It is inspired by liquid rescale and [seam carving](https://en.wikipedia.org/wik
 
 ## Rules at a glance
 
-- **Carve only.** No generated or interpolated pixels, no time-stretching, no speed or pitch change, no looping or remixing. Every frame and sample comes from the source. The only exception is short blends of original material at joins (audio crossfades and picture dissolves).
+- **Carve, plus one gentle speed-up.** No generated or interpolated pixels, no pitch change, no looping or remixing. Every frame and sample comes from the source. There are two exceptions:
+  - short blends of original material at joins (audio crossfades and picture dissolves);
+  - a second device: one film-wide speed-up tied to the target length, with the pitch kept. It is 1.0× at 100%, 1.05× at 60% and 1.1× at 20%. Picture and sound change together, so lip-sync stays exact.
 - **Information first.**
   - Words are never cut into. Inside a kept sentence, only fillers and stutters may go, whole or not at all.
   - Whole lines go only after everything cheaper, lowest plot score first.

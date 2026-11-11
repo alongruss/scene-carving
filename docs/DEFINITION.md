@@ -13,7 +13,9 @@
 
 ## 2. Principles
 
-1. **Carve only.** Every output frame and audio sample comes from the source. Nothing is generated, interpolated, looped, time-stretched or remixed. The one exception is short blends of original material at joins: audio crossfades, plus picture cross-dissolves at unavoidable same-camera joins.
+1. **Carve only.** Every output frame and audio sample comes from the source. Nothing is generated, interpolated, looped or remixed. There are two exceptions:
+   - short blends of original material at joins: audio crossfades, plus picture cross-dissolves at unavoidable same-camera joins;
+   - a **second device**, one gentle film-wide speed-up tied to the target length, with the pitch kept (§3.6, decision #66).
 2. **Intent-preserving.** The headline goal is the same film, faster, with the director's intent kept. Pauses, holds and pacing carry meaning, so they are compressed with care rather than flattened.
 3. **Two-axis, multi-layer scoring.** Every seam has a **noticeability** score (the perceptual cost of the new join) and an **importance** score (plot plus mood). Both are built from multiple layers covering picture, dialogue, music and sync. Importance can veto a cheap removal.
 4. **Self-calibrated per film.** All scores and weights are judged against *this* film's own statistics. There are no hand-written per-film rules. Human marks are the only per-film input.
@@ -122,14 +124,14 @@ The cascade is **re-run** (not the analysis) when human marks or the pace knob c
 
 ### 3.4 Timeline UI (near-real-time)
 
-- **Length slider:** thresholds the precomputed removal order. Moving it must feel instant, like liquid rescale.
+- **Length slider:** sets the target length. It thresholds the precomputed removal order and sets the film-wide speed (§3.6). Moving it must feel instant, like liquid rescale.
 - **Pace knob:** separate from length. It sets how far toward modern pacing to push. We don't yet know what is better, so it starts as a knob.
 - **Score heatmaps:** every layer along the film, showing what is removed at the current length.
 - **Human marks**, painted on the timeline:
   - **Protect:** never removed.
   - **Importance level:** raise or lower the importance of a span.
   - **Force cut:** removed regardless of score.
-- **Preview** plays the original with the current skip list and cheap crossfades, without re-encoding.
+- **Preview** plays the original with the current skip list and cheap crossfades, at the current film-wide speed, without re-encoding. Browsers keep pitch when the playback rate changes.
 
 ### 3.5 Render
 
@@ -148,15 +150,29 @@ The cascade is **re-run** (not the analysis) when human marks or the pace knob c
   Other outputs may come later.
 - Runs the **lip-sync validator** on rendered on-screen dialogue (hard fail; see §4).
 
+### 3.6 Second device: film-wide speed-up (decision #66)
+
+Carving is the main device. A gentle speed-up runs alongside it, set by the same target length:
+
+- **Speed = 1 + (1 − target) / 8.** That gives 1.0× at 100%, 1.03× at 75%, 1.05× at 60%, 1.09× at 30% and 1.1× at 20%. Down to about 60% it stays within the PAL speed-up (4%) that audiences accepted for decades.
+- **Carving keeps target × speed.** That fraction always rises with the target, so the nested removal order still holds.
+- **One speed everywhere.** Picture, speech and music all play faster by the same factor, so the film's relative rhythm is kept.
+- **Picture:** every carved frame is shown, just at fps × speed. No frame is dropped or generated.
+- **Sound:** time-stretched with the pitch kept.
+  - The prototype uses ffmpeg's `rubberband`, which gives exact length and timing within about 2 ms (8 ms at worst).
+- **Lip-sync stays exact** because picture and sound change speed together.
+- Joins, dissolves and learned breathing room all shrink by the same factor.
+- *Measured* on the carved films: up to 6 more points of spoken words kept at 20–30%, and fewer joins at mild targets.
+
 ## 4. Hard constraints
 
 | Constraint | Meaning |
 |---|---|
 | **No synthesis** | No frame interpolation, morph cuts, generated or looped ambience, or inpainting. Only original frames and samples, which may be *blended* at a join: a short audio crossfade, or an approximately 6-frame cross-dissolve at an unavoidable same-camera picture join. |
-| **No speed or pitch change of audio** | No time-scale modification. Speech always plays at its original speed. |
+| **No pitch change, no local speed change** | Pitch never changes. The only time-scale change is the film-wide speed of §3.6, applied to picture and sound together. Nothing is sped up locally, and speech is never sped up on its own. |
 | **Carve the original mix** | Audio seams cut the mixed soundtrack as-is. Stem separation exists only inside analysis. |
 | **Lip-sync never lost** | No A/V offset on sync-critical content. Validated with SyncNet-style measurement against EBU R37 (+40 ms / −60 ms). Exceeding it is a hard fail. |
-| **No physics distortion** | Subject motion is never sped up. Frames may be dropped during *camera* moves only when that is unnoticeable. |
+| **No physics distortion** | Subject motion is never sped up locally. The gentle film-wide speed of §3.6 is the one exception. Frames may be dropped during *camera* moves only when that is unnoticeable. |
 | **One clock per frame** | Each output frame is one whole source frame. No spatio-temporal (multi-clock) seams. |
 | **Chronology kept** | No reordering of material. |
 
@@ -248,9 +264,9 @@ Media files never go into git (see `.gitignore`).
   - extend static holds and shot tails by repeating original frames, which is invisible in still shots;
   - pad silences.
 
-  Lengthening would use the same score map run in reverse: an insertion order, spread across the film, never inside speech or subject motion. It needs **no speed change** (slow motion distorts physics and stays excluded).
+  Lengthening would use the same score map run in reverse: an insertion order, spread across the film, never inside speech or subject motion. It needs **no local speed change**: local slow motion distorts physics and stays excluded.
 
-  **Open decision:** carving into silence is free, but lengthening needs extra *audio*: repeated room tone or silence. Looping was ruled out in #41, so this needs a decision.
+  **Open decision:** carving into silence is free, but lengthening needs extra *audio*: repeated room tone or silence. Looping was ruled out in #41, so this needs a decision. One option now exists: continue the §3.6 line above 100%, giving a gentle film-wide slow-down (for example 0.975× at 120%). It needs no generated audio.
 
   Possible uses:
   - slower pacing for accessibility, language learners or older viewers;
