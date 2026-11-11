@@ -44,7 +44,10 @@ It is inspired by liquid rescale and [seam carving](https://en.wikipedia.org/wik
 The full iteration log is `prototype/README.md` on branch `prototype/carve-only`.
 
 - **Credits, then trims at existing cuts.** On *Tears of Steel*, the story is carved almost entirely by trimming shot heads and tails. Visible jumps dropped to 0 at 75% and 60%.
-- **Healing jump cuts.** In a blind bake-off, a short **dissolve** beat both hard cuts and a graph-cut "patch". The patch was worst in 7 of 10 cuts.
+- **Healing jump cuts.**
+  - **First bake-off:** a short **dissolve** beat both hard cuts and a graph-cut "patch", which was worst in 7 of 10 cuts.
+  - **Second bake-off** (24 joins, half with speech): dissolves whose frames are first **aligned along their motion** (optical flow or RIFE) won 13 of 17 best picks. The plain dissolve was picked worst as often as a hard cut.
+  - Renders now use the RIFE-aligned dissolve, which takes 0.3 s per join on a 2014 laptop GPU.
 - **Speech recognition misses lines under music**, so subtitles are the authority. Anchoring them to the audio recovered precise timing for the climax and the ending.
   - At 30% length, *Tears of Steel* keeps **75 of 76 subtitle lines intact, with none partly cut**.
   - Subtitles shifted, sped up for PAL, or containing an inserted scene re-align within ±0.25 s and give an identical carve.
