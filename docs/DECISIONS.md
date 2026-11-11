@@ -20,7 +20,7 @@
 | 10 | How far may one scene's compression stray from the overall ratio? | Tight · Moderate · Loose | "I would say moderate but again we also have the option to remove whole parts and scenes that do not harm the plot. so we need to understand for temporal audio and video what is needed for the plot and mood" |
 | 11 | Which success goal is given up last? | Edits unnoticed · Watches to end · Plot · Mood | "they are all important scores. holding attention is subjective" |
 | 12 | What shape should extreme removal take? | Many small, spread out · Few large · Least noticeable first | "we try to be least noticeable - maybe someone saying "umm" is unimportant. as the scoring allows us we remove more. maybe some character is calling out to it's dog while an important conversation is taking place. that whole dog interaction might be cut if it is not relevant to the plot and mood. as we go into the extreme it becomes a job similar to a film editor." |
-| 13 | Which picture manipulations are OK? | Speed up motion slightly · Drop frames when static · Trim shot heads/tails · Jump cuts inside a shot | "we should not distort physics" (so no motion speed-up), plus **drop frames when static**, **trim heads/tails**, **jump cuts inside a shot** |
+| 13 | Which picture manipulations are OK? | Speed up motion slightly · Drop frames when static · Trim shot heads/tails · Jump cuts inside a shot | "we should not distort physics" (so no motion speed-up), plus **drop frames when static**, **trim heads/tails**, **jump cuts inside a shot**. ⟲ One gentle film-wide speed-up was later allowed (#66). Local speed-up of motion stays excluded. |
 | 14 | In the dog example, what is removed? | Interleaved moments · Overlapping sound layer · Both | **Interleaved moments** (saves time) |
 | 15 | Which models are acceptable? | Cloud frontier · Local only · Either | **Local only** |
 | 16 | What can a human mark? | Protect · Pin duration · Importance level · Force cut | **Protect, Importance level, Force cut** (no pinned durations) |
@@ -58,7 +58,7 @@
 | 43 | How are audio pieces joined? | Short crossfades · Zero-crossing hard cuts | "we can do short crossfades as long is it is not processing intense. it must work near-relatime" |
 | 44 | How do audio seams relate to the mix? | Stems for analysis only · Carve stems, remix · Mix only, no separation | "I do not understand this" (re-asked as #47) |
 | 45 | What happens when the slider reaches plot seams? | User decides on the map · Warn at the floor · Hard stop | "analysis is an offline process already finished by the time the user is in the UI allowing for compute of the carving cascade. slider can go all the way." |
-| 46 | Keep slightly faster off-screen speech? (re-asked in plain language) | Drop it · Keep it | **Drop it.** Speech always plays at normal speed. |
+| 46 | Keep slightly faster off-screen speech? (re-asked in plain language) | Drop it · Keep it | **Drop it.** Speech always plays at normal speed. ⟲ Speech now shares the film-wide speed-up (#66), but it is never sped up on its own. |
 | 47 | Cut the mixed soundtrack as-is, or split it into layers? (re-asked in plain language) | Cut the mix as-is · Split and cut layers | **Cut the mix as-is.** Stem separation is used only during analysis. |
 
 ## Prototype feedback: after watching the carve-only prototype (iteration 1)
@@ -95,13 +95,14 @@ The user watched 90%, 75% and 60% carvings of *Tears of Steel*, made by the thro
 | 63 | Second test film (options: Under the Skin · The Conversation · Public-domain film · Alps) | **A public-domain film**, so results can be shared. |
 | 64 | "can we also lengthen movie like liquid rescale can enlarge images?" | Recorded as a **future direction** (DEFINITION §12): insert time at the least-noticeable, meaning-neutral places (pauses, static holds), with no speed change. The audio for it (repeating room tone or silence) conflicts with #41 and needs a decision before building. |
 | 65 | Seven-film batch. Dark films lost their endings as "credits", and machine captions merged speech into minutes-long units. "Fix both and re-render?" (options: Yes, fix both · Not now) | **Yes, fix both.** (a) **Credits contain no dialogue and sit at the film's ends**: darkness alone is not credits, since noir and night films are dark throughout. (b) **Machine-made captions are not an authority on sentences.** Captions that are barely punctuated and broken mid-sentence leave the sentence units to the ASR. A caption line adds protection only where Whisper, prompted with its text, hears it. (c) A long silence always ends a unit. Validated on *Detour* and *Night of the Living Dead*: real-word frames kept at 75% rose from 88–89% to 100%. |
+| 66 | "I think we can also have an overall 1.125 max speed-up triggered from the target percent input so that in high compression we also get some 1.1 speedup." When should it start? (options: Fixed range · When words start to go · From the start) Same speed throughout? (options: One speed everywhere · Less in music-led parts · Speech at normal speed) | "it should happen in parallel with current carving methods as a second device. 100% original is 1.0 speed and 20% is 1.1 speed", and **One speed everywhere**. ⟲ This reverses #13 and #46 for one film-wide factor. **Speed = 1 + (1 − target) / 8**: 1.0× at 100%, 1.05× at 60% (about the PAL speed-up), 1.1× at 20%, and 1.125× only in the limit of 0%. Carving keeps target × speed, so the nested order still holds. Every carved frame is shown, just faster. Audio is time-stretched with the pitch kept. Picture and sound change together, so lip-sync stays exact. Measured on the carved films: up to 6 points more spoken words kept at 20–30% (3–6 on films with dialogue), and fewer joins at mild targets. |
 
 ## Resolved tensions
 
 - **"Keep the plot untouched" (#40) vs. "just go" (#7) and "slider can go all the way" (#45).** There is no plot floor. Plot is protected *by ordering*: plot-bearing seams carry the highest importance and are removed last. The timeline shows exactly when plot starts to be lost.
 - **Proportional removal vs. "rushed dialogue" (#1, #5, #9).** Removal is score-driven, not proportional. Conversation rhythm is protected by learned pause floors and rank order (#35), and spread is part of the cost (#20).
 - **"Just go" (#7) vs. director intent (#2).** There is no separate extreme mode. The same cascade simply reaches costlier seams, ending in editor-like decisions (#12).
-- **Speech speed-up (#6, #17) vs. carve-only (#41).** Speech speed-up was dropped (#46).
+- **Speech speed-up (#6, #17) vs. carve-only (#41).** Speech speed-up was dropped (#46). Speed came back only as a second device (#66): one film-wide factor tied to the target length, the same for picture, speech and music, so rhythm and lip-sync are kept.
 - **Cutting music at bar lines (#6) vs. carving the mix (#47) and no special rules (#37).** Music may only be cut where the *whole mix* is cleanly cuttable. Downbeats inform noticeability, and famous pieces get no special case.
 
 ## Rejected or out of scope
@@ -109,9 +110,9 @@ The user watched 90%, 75% and 60% carvings of *Tears of Steel*, made by the thro
 | Item | Why |
 |---|---|
 | Any synthesis: frame interpolation, morph cuts, generated or looped ambience, inpainting | #33, #41: carve only. Blending original material at joins is allowed: audio crossfades (#43) and short picture dissolves (#51). |
-| Audio time-scale modification, including off-screen speech speed-up | #41, #46 |
+| Local or speech-only audio time-scale modification, including off-screen speech speed-up | #41, #46. The film-wide speed-up of #66 is the one exception. |
 | Separating stems and remixing them in the output | #47 (separation is for analysis only) |
-| Speeding up subject motion | #13: no physics distortion |
+| Speeding up subject motion locally | #13: no physics distortion. Only the film-wide speed of #66 applies. |
 | Multi-clock (spatio-temporal) seams such as video synopsis or Dynamosaics | Breaks physics and one clock per frame (#13). See [research](research/video-and-editing.md). |
 | Learning weights from alternate cuts | #40 |
 | A playback-time retime map as the primary output | #28: rendered file only for now |

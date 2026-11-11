@@ -7,7 +7,8 @@ Project vocabulary comes first. Borrowed academic and industry terms follow, eac
 | Term | Definition | Avoid / notes |
 |---|---|---|
 | **Liquid Retime** | The project, and the operation of shortening a film by seam carving in time. | — |
-| **Retime** | To shorten a film by **carving** seams. It never involves a speed change or synthesis. | Don't use it for "speed up" or "summarize". |
+| **Retime** | To shorten a film by **carving** seams, helped by at most one gentle film-wide speed-up (the **second device**). It never involves synthesis. | Don't use it for "speed up" or "summarize". |
+| **Second device** | The film-wide speed-up that runs alongside carving: speed = 1 + (1 − target) / 8, so 1.1× at 20%. It applies to picture and sound together, keeps the pitch, and is never local (decision #66). | Not a "speed mode": it is set by the target length. |
 | **Carve / carve-only** | Removing original material. Carve-only is the principle that every output frame and sample exists in the source. | Not "edit", which is too broad. |
 | **Seam** | A serial, continuous group of frames and/or audio of any length, from one frame up to a whole scene. Seams are scored and may overlap. | Not "cut". |
 | **Seam scale** | **Micro:** static frames, single frames dropped during camera moves, fillers, pauses and gaps. **Meso:** shot heads and tails, jump-cut intervals, lines. **Macro:** interleaved beats, shots, scenes. | — |
@@ -42,9 +43,9 @@ Project vocabulary comes first. Borrowed academic and industry terms follow, eac
 | **Filler** | A disfluency such as "umm" or "uh", the cheapest kind of speech seam. | — |
 | **Interleaved beat** | A side moment woven into a scene that can be removed without harming plot or mood. Example: a character calls their dog during an important conversation. | — |
 | **Human marks** | **Protect** (never removed), **Importance level** (raise or lower a span's importance), **Force cut** (removed regardless of score). | No "pin duration". |
-| **Hard constraint** | A rule no cost can buy: no synthesis, no audio speed or pitch change, carve the original mix, lip-sync never lost, no physics distortion, one clock per frame, chronology kept. | — |
+| **Hard constraint** | A rule no cost can buy: no synthesis, no pitch change, no local speed change, carve the original mix, lip-sync never lost, no physics distortion, one clock per frame, chronology kept. | — |
 | **One clock per frame** | Every output frame is one whole source frame. There are no spatio-temporal seams. | — |
-| **Physics distortion** | Any visible change in the speed of subject motion. Forbidden. | — |
+| **Physics distortion** | Any local, visible change in the speed of subject motion. Forbidden. The gentle film-wide second device is the one exception. | — |
 | **Analysis / Cascade / Timeline UI / Render** | The four pipeline phases. Analysis runs offline (hours). The cascade runs offline after analysis and again when marks or the pace knob change. The UI is near real time. Render produces the file and the report. | — |
 | **Removal report** | A render output listing every removed seam with its range, kind, scale, scores and reason. | — |
 | **North star** | *2001: A Space Odyssey*, our hardest private benchmark. | — |
@@ -74,7 +75,8 @@ Project vocabulary comes first. Borrowed academic and industry terms follow, eac
 
 ### Audio and speech — [research/audio-and-speech.md](research/audio-and-speech.md)
 
-- **TSM (time-scale modification)**, **OLA / WSOLA / PSOLA / phase vocoder**, **HPSS**, **formant preservation**, **key-frame map**: all considered and not used.
+- **TSM (time-scale modification)**: used only for the film-wide second device, as one uniform stretch with the pitch kept (ffmpeg `rubberband` in the prototype).
+- **OLA / WSOLA / PSOLA / phase vocoder**, **HPSS**, **formant preservation**, **key-frame map**: considered, and not used beyond that.
 - **Room tone**, **ambience / atmos**, **audio texture**, **audio inpainting**: synthesis is not used; texture statistics may score joins.
 - **DME stems / M&E**: separation is used for analysis only.
 - **VAD**, **forced alignment**, **diarization**, **verbatim ASR**, **filler / disfluency**.

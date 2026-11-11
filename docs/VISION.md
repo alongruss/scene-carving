@@ -18,7 +18,7 @@ Pauses, holds and pacing are not slack by default. A pause is a pause for a purp
 - Keeps the **mood**. The arousal and valence curve and the music's continuity survive.
 - Keeps the **plot**. Plot-bearing material is the last thing to go.
 - Keeps the **information**. Spoken words are never cut into. Lines (taken from subtitles when available, anchored to the film's audio) go whole, least plot-important first, and only after everything cheaper.
-- Keeps it **invisible**. It carves only, never generates pixels or sound, never changes speed or pitch, and never breaks lip-sync. Joins are softened only by short blends of original material.
+- Keeps it **invisible**. It carves, never generates pixels or sound, never changes pitch, and never breaks lip-sync. Joins are softened only by short blends of original material. Its one speed change is a gentle film-wide factor tied to the target length: 1.0× at 100%, rising to 1.1× at 20%. Down to about 60% it stays within the PAL speed-up.
 
 ## North star: *2001: A Space Odyssey*
 
@@ -46,7 +46,7 @@ An energy based on motion or dialogue would gut it. If Liquid Retime can shorten
 ## Non-goals
 
 - Summaries, highlights, trailers or "fast movies". The output stays a whole work in its original order.
-- Uniform or variable acceleration of subjects, and speech speed-up.
+- Local or variable acceleration of subjects, and speeding up speech on its own. One gentle film-wide speed-up tied to the target length is the exception (decision #66).
 - Any generative or synthetic picture or sound. Short crossfades and dissolves of original material at joins are not generation.
 - Changing the plot, or training an editor that "can change the whole plot".
 - Cloud processing.
