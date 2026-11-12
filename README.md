@@ -69,11 +69,11 @@ The prototype lives on branch `prototype/carve-only` of a private repo, so you n
 The commands use Windows paths. On macOS or Linux, use `python3` instead of `py`, and `.venv/bin/python` instead of `.venv/Scripts/python`.
 
 ```bash
-git clone https://github.com/alongruss/liquid-retime.git
+git clone https://github.com/alongruss/scene-carving.git
 ```
 
 ```bash
-cd liquid-retime
+cd scene-carving
 ```
 
 ```bash
