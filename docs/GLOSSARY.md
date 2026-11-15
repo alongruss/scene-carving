@@ -9,7 +9,7 @@ Project vocabulary comes first. Borrowed academic and industry terms follow, eac
 | **Scene Carving** | The project: seam carving applied to a film's time axis, named to echo *seam carving*. Full title: *Scene Carving – Liquid Retiming*. Formerly *Liquid Retime* (decision #69). | — |
 | **Liquid retiming** | The operation: shortening a film by carving seams of time, as *liquid rescale* shrinks an image by carving seams of pixels. | Not a speed change: the gentle film-wide speed-up is only a second device (#66). |
 | **Retime** | To shorten a film by **carving** seams, helped by at most one gentle film-wide speed-up (the **second device**). It never involves synthesis. | Don't use it for "speed up" or "summarize". |
-| **Second device** | The film-wide speed-up that runs alongside carving: speed = 1 + (1 − target) / 8, so 1.1× at 20%. It applies to picture and sound together, keeps the pitch, and is never local (decision #66). | Not a "speed mode": it is set by the target length. |
+| **Second device** | The film-wide speed-up that runs alongside carving: speed = 1 + (1 − target) / 8, so 1.1× at 20%. It applies to picture and sound together and keeps the pitch (decision #66). Edge-only shots without speech may add the **extra speed** (#75). | Not a "speed mode": it is set by the target length. |
 | **Carve / carve-only** | Removing original material. Carve-only is the principle that every output frame and sample exists in the source. | Not "edit", which is too broad. |
 | **Seam** | A serial, continuous group of frames and/or audio of any length, from one frame up to a whole scene. Seams are scored and may overlap. | Not "cut". |
 | **Seam scale** | **Micro:** static frames, single frames dropped during camera moves, fillers, pauses and gaps. **Meso:** shot heads and tails, jump-cut intervals, lines. **Macro:** interleaved beats, shots, scenes. | — |
@@ -19,6 +19,11 @@ Project vocabulary comes first. Borrowed academic and industry terms follow, eac
 | **Cut (original)** | A shot boundary that already exists in the source film. | Don't call our removals "cuts" in docs. Use seam or join. |
 | **Crossfade / dissolve** | A short, cheap blend across a join, using only original material. Audio gets a crossfade of about 10 ms. Unavoidable same-camera picture joins get a cross-dissolve of about 6 frames. It must stay cheap enough for near-real-time preview. | Not synthesis. Not a morph cut. |
 | **Mid-shot join** | A join inside a single same-camera shot. It is costly (a jump cut), and costlier with moving subjects or in conversation. The opposite is a trim at an existing cut. | — |
+| **Jump-cut budget** | How many mid-shot joins a film may get per output minute: its own rate of jump cuts (cuts whose two sides show the same setup). Past it, a jump cut is a last resort. Speech edits (whole sentences, fillers) don't count (decisions #70, #74). | — |
+| **Edge-only shot** | A camera move (pan, tilt, dolly, zoom), a shot of one moving subject, or a static take at least as long as the film's median shot. It is trimmed only at its head and tail, with a cost that rises as it shrinks (decisions #71, #72). | — |
+| **Look-alike shots** | Adjacent shots with no speech that show the same thing. Only the most informative stays: an event happens in it, it is the newest view, or its action is most complete (decision #73). | — |
+| **Extra speed** | A second speed factor on edge-only shots without speech, on the same curve as the second device and stacked on it. Effects, breathing and silence speed up with the picture; music keeps its tempo (decision #75). | Never applied to speech. |
+| **Music-only stretch** | Where the mix is essentially just music. There the music is carved at its own musical joins, apart from the picture, to the exact length the picture plays for (decision #76). | — |
 | **Heal strategy** | The tag saying how a seam's join is healed: `trim-at-cut`, `dissolve`, `hard` or `edge-trim`. (`patch`, a per-pixel switch-time graph cut, was rejected after a blind bake-off.) | — |
 | **Filler unit** | One or more adjacent fillers or stutter repeats ("um", "you know", "Be... be"). It is cut whole or not at all; the only speech that may be cut from inside a kept sentence. | — |
 | **Breathing room** | Protected frames right after speech or sound ends, and before it starts. The length is learned from the film. | — |
@@ -44,9 +49,9 @@ Project vocabulary comes first. Borrowed academic and industry terms follow, eac
 | **Filler** | A disfluency such as "umm" or "uh", the cheapest kind of speech seam. | — |
 | **Interleaved beat** | A side moment woven into a scene that can be removed without harming plot or mood. Example: a character calls their dog during an important conversation. | — |
 | **Human marks** | **Protect** (never removed), **Importance level** (raise or lower a span's importance), **Force cut** (removed regardless of score). | No "pin duration". |
-| **Hard constraint** | A rule no cost can buy: no synthesis, no pitch change, no local speed change, carve the original mix, lip-sync never lost, no physics distortion, one clock per frame, chronology kept. | — |
+| **Hard constraint** | A rule no cost can buy: no synthesis, no pitch change, no local speed change beyond the extra speed on edge-only shots without speech, carve the original mix, lip-sync never lost, no physics distortion, one clock per frame, chronology kept. | — |
 | **One clock per frame** | Every output frame is one whole source frame. There are no spatio-temporal seams. | — |
-| **Physics distortion** | Any local, visible change in the speed of subject motion. Forbidden. The gentle film-wide second device is the one exception. | — |
+| **Physics distortion** | Any local, visible change in the speed of subject motion. Forbidden beyond the gentle curve of the second device and the extra speed on edge-only shots (#75). | — |
 | **Analysis / Cascade / Timeline UI / Render** | The four pipeline phases. Analysis runs offline (hours). The cascade runs offline after analysis and again when marks or the pace knob change. The UI is near real time. Render produces the file and the report. | — |
 | **Removal report** | A render output listing every removed seam with its range, kind, scale, scores and reason. | — |
 | **North star** | *2001: A Space Odyssey*, our hardest private benchmark. | — |

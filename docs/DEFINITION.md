@@ -110,6 +110,12 @@ The cascade repeatedly removes the cheapest remaining seam and records the order
      - Each filler unit is cut whole or not at all.
      - Filler cuts land inside speech, so they are ordered after silent trims.
    - **A visible join is one perceptual event.** Its cost must not be averaged away over a long seam, and extending an existing hole adds no new join.
+   - **Match the film's own cutting style** (decisions #70–#74, after the *2001* review).
+     - **Jump-cut budget.** Each film may have as many jump cuts per output minute as it has of its own: cuts whose two sides show the same setup. *2001* has almost none. Past the budget, a jump cut is a last resort with a large join cost.
+     - **Edge-only shots.** Camera moves (pan, tilt, dolly, zoom), shots of one moving subject (a ship flying or landing), and static takes at least as long as the film's median shot are trimmed only at the head and tail. A cut inside them counts as past the budget. Shot kinds come from global motion (optical flow fitted with pan, zoom and roll) and its residual (subject motion).
+     - **Scored trimming, no fixed floor.** Trimming an edge-only shot costs more the further it shrinks: as it nears the film's own short shots of the same kind, and for frames that carry more of the camera path or subject travel, show something not seen elsewhere in the shot, or sit within a second of an event (motion starting, stopping or turning; something entering or leaving the frame). The middle survives longest, and the cheaper end loses more.
+     - **Look-alike neighbours.** Adjacent shots with no speech that show the same thing (their pictures differ no more than the two halves of a typical shot) keep only the most informative one: an event happens in it, it is the newest view, or its action is most complete. The others drop before it is trimmed.
+     - **Speech edits are exempt.** A same-shot join that removed speech (a whole sentence or a filler) doesn't count against the budget. Silent jump cuts past the budget still go before whole sentences.
 2. **Remove** the cheapest seam and append it to the **removal order**.
 3. **Cascade the update:**
    - overlapping seams shrink or disappear and are re-scored;
@@ -148,7 +154,8 @@ The cascade is **re-run** (not the analysis) when human marks or the pace knob c
 - **Standard review renders:** 90 / 75 / 60 / 30% of the original length.
 - Outputs:
   - the **shortened video file**, for personal use;
-  - a **removal report**: every removed seam with time range, kind, scale, scores and the reason it went.
+  - a **removal report**: every removed seam with time range, kind, scale, scores and the reason it went;
+  - **fitted subtitles** (`.srt` with the video's name): the film's subtitles moved onto the render's clock. Lines whose speech was removed are dropped. Without real subtitles, cues are rebuilt from the speech recognition words the render still contains.
 
   Other outputs may come later.
 - Runs the **lip-sync validator** on rendered on-screen dialogue (hard fail; see §4).
@@ -167,15 +174,20 @@ Carving is the main device. A gentle speed-up runs alongside it, set by the same
 - Joins, dissolves and learned breathing room all shrink by the same factor.
 - *Measured* on the carved films: up to 6 more points of spoken words kept at 20–30%, and fewer joins at mild targets.
 
+**Extra speed on edge-only shots** (decision #75). Edge-only shots without speech (§3.3) get a second factor on the same curve, stacked on the film-wide one: 1.09 × 1.09 ≈ 1.18× at 30%, 1.21× at 20%.
+- It switches at the shot's cuts, where the cut hides the change.
+- **Sound by type.** Effects, breathing and silence are time-stretched with the picture, pitch kept. Speech is never sped up extra, so shots with speech don't get it. Music keeps its tempo: in a music-only stretch it is carved apart from the picture (§5). Shots where music is mixed with other sound don't get the extra speed.
+- Every carved frame is still shown, so the render has a variable frame rate. Carving and both speeds are solved together so the output lands on the target length, and the order stays nested.
+
 ## 4. Hard constraints
 
 | Constraint | Meaning |
 |---|---|
 | **No synthesis** | No generated frames, looped ambience or inpainting. Only original frames and samples, which may be *blended* at a join: a short audio crossfade, or an approximately 6-frame cross-dissolve at an unavoidable same-camera picture join. The dissolve's pairs are *warped* into line first (#67, #68). Warp-only in-betweens are allowed at joins with no speech (still a candidate). No learned residual, and no generative model. |
-| **No pitch change, no local speed change** | Pitch never changes. The only time-scale change is the film-wide speed of §3.6, applied to picture and sound together. Nothing is sped up locally, and speech is never sped up on its own. |
-| **Carve the original mix** | Audio seams cut the mixed soundtrack as-is. Stem separation exists only inside analysis. |
+| **No pitch change, little local speed change** | Pitch never changes. Time-scale changes are the film-wide speed of §3.6, applied to picture and sound together, and the extra speed on edge-only shots without speech (§3.6, #75), applied to picture, effects, breathing and silence together. Speech is never sped up on its own, and music keeps its tempo. |
+| **Carve the original mix** | Audio seams cut the mixed soundtrack as-is. Stem separation exists only inside analysis. Where the mix is only music, it may be carved at its own musical joins (§5, #76). |
 | **Lip-sync never lost** | No A/V offset on sync-critical content. Validated with SyncNet-style measurement against EBU R37 (+40 ms / −60 ms). Exceeding it is a hard fail. |
-| **No physics distortion** | Subject motion is never sped up locally. The gentle film-wide speed of §3.6 is the one exception. Frames may be dropped during *camera* moves only when that is unnoticeable. |
+| **No physics distortion** | Subject motion is never sped up beyond the gentle curve of §3.6: the film-wide speed, plus the extra speed on edge-only shots without speech (#75). Frames may be dropped during *camera* moves only when that is unnoticeable. |
 | **One clock per frame** | Each output frame is one whole source frame. No spatio-temporal (multi-clock) seams. |
 | **Chronology kept** | No reordering of material. |
 
@@ -186,6 +198,7 @@ A decoupled cut is the automatic version of an editor's J-cut or L-cut. An audio
 - Between the two positions, audio and picture are offset by that duration.
 - So a decoupled cut is valid only if **nothing sync-critical lies between them**: no visible speech and no visible sound events.
 - This lets the soundtrack be cut where the *mix* is cleanly cuttable (on a downbeat, in room tone) while the picture is cut where the *image* is cleanly cuttable (at a shot boundary, during a static hold).
+- **Music-only stretches** (decision #76) are the first case built. Where the mix is essentially just music (no speech, and tonal energy dominates), the picture is carved as usual. The music is carved on its own to exactly the length that picture now plays for: it jumps between moments that sound alike, starting on onsets, with 80 ms equal-power crossfades. The stretch's two ends stay in sync. In the prototype, "music" is the harmonic share of a median-filter harmonic/percussive split.
 
 ## 6. Pauses, holds and spread
 

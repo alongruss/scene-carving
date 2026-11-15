@@ -4,7 +4,7 @@
 
 - *Scene Carving* echoes [seam carving](https://en.wikipedia.org/wiki/Seam_carving), which shrinks an image by removing its least noticeable paths of pixels. Here the seams are stretches of time, picture and sound together, from a single "umm" or a static hold up to a whole side scene, removed least noticeable and least important first.
 - *Liquid retiming*, the name for the operation, echoes *liquid rescale*, GIMP's seam-carving plugin. Here you drag a length slider and the cut updates in near real time.
-- **Why not just press 1.5×?** A uniform speed-up rushes every line while the dead air still drags. Scene Carving cuts the dead air instead and keeps the director's rhythm, mood and plot. Speech stays close to its natural pace. The only speed change is one gentle film-wide factor: 1.05× at 60% length, 1.1× at 20%.
+- **Why not just press 1.5×?** A uniform speed-up rushes every line while the dead air still drags. Scene Carving cuts the dead air instead and keeps the director's rhythm, mood and plot. Speech stays close to its natural pace. Speed changes are gentle: one film-wide factor (1.05× at 60% length, 1.1× at 20%), and the same again on wordless camera moves and long takes.
 - **North-star test:** [*2001: A Space Odyssey*](docs/VISION.md#north-star-2001-a-space-odyssey), a famously slow film. Its long, near-silent takes stretch time on purpose, and a score based on motion or dialogue would gut it. It is a private benchmark.
 
 **Try it:** [the prototype](#try-the-prototype) · **Read more:** [the docs](#docs)
@@ -30,16 +30,21 @@
 
 ## Rules at a glance
 
-- **Carve, plus one gentle speed-up.** No generated frames, no pitch change, no looping or remixing. Every frame and sample comes from the source. There are two exceptions:
+- **Carve, plus gentle speed-ups.** No generated frames, no pitch change, no looping or remixing. Every frame and sample comes from the source. The exceptions:
   - short blends of original material at joins (audio crossfades and aligned dissolves);
-  - a second device: one film-wide speed-up tied to the target length, with the pitch kept. Picture and sound change together, and there is no local speed change: subjects are never sped up on their own.
+  - a second device: one film-wide speed-up tied to the target length, with the pitch kept. Picture and sound change together;
+  - the same factor again on edge-only shots without speech (below). Their effects, breathing and silence speed up with the picture. Speech is never sped up on its own, and music keeps its tempo.
 - **Information first.**
   - Words are never cut into. Inside a kept sentence, only fillers and stutters may go, whole or not at all.
   - Whole lines go only after everything cheaper, lowest plot score first.
   - Motion is not information. It only makes a cut more visible.
-- **Credits go first, and cuts prefer existing shot cuts.** A same-camera jump cut is a last resort.
+- **Credits go first, and cuts prefer existing shot cuts.**
+- **Keep the film's own cutting style.**
+  - A film gets only as many jump cuts as it has itself. Past that, a jump cut is a last resort.
+  - Camera moves, shots of one moving subject, and long static takes are **edge-only**: trimmed at the head and tail, never cut inside. Trimming costs more as a shot shrinks.
+  - Of adjacent shots that show the same thing, the most informative stays.
 - **Lip-sync never breaks.**
-- **Audio is cut from the original mix.** Separating it into stems is for analysis only.
+- **Audio is cut from the original mix.** Separating it into stems is for analysis only. Where the mix is only music, the music is carved at its own musical joins, apart from the picture.
 - **No hand-written per-film rules.** Scores calibrate themselves to each film, and human marks are the only per-film input.
 - **Local.** Everything runs on your own machine.
 
@@ -52,7 +57,7 @@ The full iteration log is `prototype/README.md` on branch `prototype/carve-only`
   - **First bake-off:** a short plain **dissolve** beat both hard cuts and a graph-cut "patch", which was worst in 7 of 10 cuts.
   - **Second bake-off** (24 joins in *Tears of Steel* and *Detour*, half with speech): dissolves whose frames are first **aligned along their motion** (optical flow or RIFE) won 13 of 17 best picks. The plain dissolve was picked worst as often as a hard cut (6 of 19). RIFE heals a join in about 0.3 s on a 2014 laptop GPU (GTX 970M).
 - **Speech recognition misses lines under music.** Anchoring subtitles to the audio recovered precise timing for the climax and the ending.
-  - At 30% length, *Tears of Steel* keeps **all 76 of 76 subtitle lines intact**.
+  - At 30% length, *Tears of Steel* keeps **75 of 76 subtitle lines intact**. Only the one-word "Now." goes; before the style rules of #70–#76 it kept all 76.
   - Subtitles shifted, sped up for PAL, or containing an inserted scene re-align within ±0.25 s and give an identical carve.
 - **Eight films, from no dialogue to wall-to-wall talk.**
   - *Sintel* keeps every spoken word at every length. *Elephants Dream* keeps 99% at 30%, with one sentence removed whole.
@@ -61,6 +66,12 @@ The full iteration log is `prototype/README.md` on branch `prototype/carve-only`
 - **Lessons from dark films and machine captions** (decision #65): darkness alone is not credits, and auto-generated captions don't mark sentences, so the speech recognizer's sentences stay the units.
 - **Limit found:** a speech-dense film can't reach 30% without losing speech. At 30%, *Duck and Cover* (71% speech) keeps 44% of its words and *His Girl Friday* (67%) keeps 45%. Words go mostly as whole sentences, least important first.
 - **The speed-up pays off at short lengths:** up to about 6 more percentage points of spoken words are kept at 20–30%. The lip-sync offset stays between 0 and −5 ms, and lengths come out exact.
+- **Keeping *2001*'s own cutting style** (decisions #70–#76). Kubrick's cut has no jump cuts of its own, so its budget is zero.
+  - At 30% the render has 65 silent jump cuts, down from 345. At 60% it has 19, down from 268.
+  - Joins at 30% fell from 815 to 520, and every spoken word is still kept.
+  - The EVA stretch the user flagged has no jump cuts at 60% and one at 30%.
+  - Lip-sync stays within 20 ms over the whole film, with the extra speed and separately carved music.
+- **Subtitles fitted to each render** (#77) land a median of under 50 ms from the speech heard in the render.
 
 ## Try the prototype
 
@@ -103,11 +114,13 @@ Create `media/` and put your film (and its `.srt`, if you have one) in it.
 ```
 
 - `align_subs.py` is optional and only needed when you have a subtitle file.
-- `carve_proto.py` options: `--speed-slope 0` carves only, with no speed-up; `--heal <name>` tries that heal first and falls back down the heal chain below if it can't run (for example `--heal dissolve` for the plain dissolve).
+- `carve_proto.py` options: `--speed-slope 0` carves only, with no speed-up; `--heal <name>` tries that heal first and falls back down the heal chain below if it can't run (for example `--heal dissolve` for the plain dissolve); `--classic` turns off the style rules of decisions #70–#76.
 - Output goes to `renders/<film>/`:
   - `<film>_090/075/060/030.mp4`, at 90%, 75%, 60% and 30% of the original length;
+  - `<film>_090/075/060/030.srt`, subtitles fitted to each render, which VLC and mpv load automatically;
   - `viewer.html`, the length slider and seam map;
   - `report.txt`.
+- `prototype/subtitles.py media/film.mp4` writes the fitted subtitles again for renders that already exist.
 - `prototype/batch.py` runs several films in a row.
 - `prototype/bakeoff.py <film>` builds a blind heal bake-off page, for comparing heals without knowing which is which.
 - Films and renders never go into git: `media/`, `renders/` and `cache/` are ignored.
@@ -134,7 +147,7 @@ All are legal to keep and share except *2001*, which stays private.
 | [docs/VISION.md](docs/VISION.md) | Why this exists, the intent-preserving headline, the *2001* north star, goals and non-goals, success criteria, ethics. |
 | [docs/DEFINITION.md](docs/DEFINITION.md) | The model: pipeline, score layers, seams and cascade, heal strategies, hard constraints, evaluation, open questions, future directions (incl. lengthening). |
 | [docs/GLOSSARY.md](docs/GLOSSARY.md) | Project vocabulary, plus borrowed academic and industry terms. |
-| [docs/DECISIONS.md](docs/DECISIONS.md) | The decision log (#1–#69): every question, the options offered, the answers given, reversals and prototype verdicts. |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | The decision log (#1–#77): every question, the options offered, the answers given, reversals and prototype verdicts. |
 | [docs/research/](docs/research/README.md) | Prior-art survey (400+ source links), a [synthesis](docs/research/synthesis.md) of what we borrow and reject, [patching from other times](docs/research/patching-from-other-times.md) (PatchMatch and seam healing), and [frame infilling at joins](docs/research/frame-infilling-at-joins.md) (interpolation, morph cuts and generative in-betweening; warp-only heals adopted, generative frames excluded). |
 
 ## Usage and rights
