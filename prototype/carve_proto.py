@@ -80,7 +80,18 @@ NONSPEECH_LOUD_W = 0.4               # non-speech content: loudness only (motion
 FILLER_W = 0.3                       # per frame: fillers / stutter repeats are cheap (decision #60)
 FILLER_PAD = 3                       # a filler seam may take this many frames of pause each side
 FILLERS = {"um", "umm", "uh", "uhh", "uhm", "er", "erm", "ah", "hmm", "hm", "mm", "mhm", "eh"}
-KIND_NAMES = ["hold", "jump", "at-cut", "shot-drop", "edge", "credits", "sentence", "filler"]
+# Style-matched carving (decisions #70-#76, after the 2001 review): learned jump-cut budget,
+# edge-only shots with a scored trim cost, look-alike neighbours, local speed-up (shots.py, sound.py)
+JC_PEN = 3.0                         # join cost of a jump cut past the film's budget, or inside an edge-only shot
+LEN_W = 0.15                         # trim cost per frame x -ln(share of same-kind shots shorter than what is left)
+LEN_FLOOR = 0.02
+MOVE_W = 0.15                        # trim cost per frame: movement carried (relative to its shot)
+NEW_W = 0.15                         # ... new picture content (ranked in the film)
+EVENT_W = 0.2                        # ... event moments (ranked in the film, held +-1 s)
+LOOK_W = 0.25                        # story weight of a look-alike shot that is not the most informative
+SENT_STYLE_W = 1.0                   # extra per-frame cost of a whole sentence: speech stays whole longest
+WORD_STYLE_W = 8.0                   # extra per-frame cost of cutting into a word, for the same reason
+KIND_NAMES = ["hold", "jump", "at-cut", "shot-drop", "edge", "credits", "sentence", "filler", "look-alike"]
 STOPWORDS = set("""a an the and or but if so of to in on at by for with from as is are was were be been
 being am i you he she it we they me him her us them my your his its our their this that these those
 there here what which who whom whose when where why how not no yes yeah okay ok oh uh um hmm hey well
@@ -489,8 +500,9 @@ def credits_mask(dark, fps, speech=None):
 
 
 # --- 2. CASCADE (the liftable core) ------------------------------------------
-def cascade(F, fps, stop_fraction, words_path=None, srt_path=None):
-    """Greedy, lazy-re-evaluated seam removal. Returns the nested removal order."""
+def cascade(F, fps, stop_fraction, words_path=None, srt_path=None, shot_an=None):
+    """Greedy, lazy-re-evaluated seam removal. Returns the nested removal order.
+    shot_an: shot analysis from shots.py (enables decisions #70-#74); None = the earlier model."""
     g, d, shot, subj = F["g"], F["d"], F["shot"], F["subj"]
     n = len(d)
     cut = F["cut"].astype(bool)
@@ -513,6 +525,7 @@ def cascade(F, fps, stop_fraction, words_path=None, srt_path=None):
         word_mask, sentences, sent_mask, src = np.zeros(n, bool), [], np.zeros(n, bool), "loudness"
         filler_mask, fillers = np.zeros(n, bool), []
         print("[cascade] no words.json - information protection is loudness-only")
+    word_w = [WORD_W]                    # cost per word frame cut into (raised with the style model)
     bpre = np.concatenate([[0.0], np.cumsum(breath)])
     wdpre = np.concatenate([[0], np.cumsum(word_mask & ~filler_mask)])   # real words only
     flpre = np.concatenate([[0], np.cumsum(filler_mask)])
@@ -524,7 +537,7 @@ def cascade(F, fps, stop_fraction, words_path=None, srt_path=None):
         cost = 0.0
         for k in range(np.searchsorted(u_fe, o0), np.searchsorted(u_fs, o1, "right")):
             ov = flpre[min(o1, u_fe[k]) + 1] - flpre[max(o0, u_fs[k])]
-            cost += (FILLER_W if o0 <= u_fs[k] and u_fe[k] <= o1 else WORD_W) * ov
+            cost += (FILLER_W if o0 <= u_fs[k] and u_fe[k] <= o1 else word_w[0]) * ov
         return cost
     s_fs = np.array([s[0] for s in sentences], np.int64)
     s_fe = np.array([s[1] for s in sentences], np.int64)
@@ -540,6 +553,50 @@ def cascade(F, fps, stop_fraction, words_path=None, srt_path=None):
     loud_rank = rank_l(F["rms_db"])
     credits = credits_mask(F["dark"], fps, (word_mask & ~filler_mask) if len(sentences) else None)
     story = np.where(credits, CREDITS_STORY_W, 1.0)
+    # Style-matched carving (decisions #70-#74): which shots are edge-only, which neighbours
+    # are look-alikes, the film's own jump-cut rate, and per-frame trim costs.
+    sx = shot_an is not None
+    look = np.zeros(n, bool)
+    tcost = np.zeros(n)
+    mkind = np.zeros(len(shot_start), np.int8)
+    edge_only = np.zeros(len(shot_start), bool)
+    look_drop = np.zeros(len(shot_start), bool)
+    rate, native, groups, len_ref = 0.0, np.zeros(0, int), [], {}
+    if sx:
+        import shots as shm
+        mkind, edge_only, in_story = shm.shot_kinds(shot_an, shot_start, shot_end, fps, ~credits)
+        has_speech = np.array([word_mask[a:b + 1].any() for a, b in zip(shot_start, shot_end)])
+        groups, look_drop, _, _ = shm.lookalikes(shot_an, shot_start, shot_end, mkind, ~credits, has_speech, fps)
+        rate, native, _ = shm.native_jump_rate(shot_an, ~credits, fps)
+        mv, nw, ev = shm.trim_signals(shot_an, shot_start, shot_end, mkind, edge_only, in_story, fps)
+        tcost = MOVE_W * mv + NEW_W * nw + EVENT_W * ev
+        for k in np.flatnonzero(look_drop):
+            look[shot_start[k]:shot_end[k] + 1] = True
+        tcost[look] = 0.0
+        story = np.where(look & ~credits, LOOK_W, story)
+        lens = shot_end - shot_start + 1
+        len_ref = {k: np.sort(lens[in_story & (mkind == k)]) for k in range(len(shm.KINDS))}
+        el = lambda m: f"{int(m.sum())} shots / {lens[m].sum() / fps / 60:.1f} min"  # noqa: E731
+        print(f"[shots] edge-only: camera move {el(edge_only & (mkind == 1))}, moving subject "
+              f"{el(edge_only & (mkind == 2))}, long static take {el(edge_only & (mkind == 3))}; "
+              f"other {el(~edge_only & in_story)}")
+        print(f"[shots] film's own jump cuts: {len(native)} ({rate:.3f} per story minute); look-alike groups "
+              f"{len(groups)}, {int(look_drop.sum())} shots to drop ({lens[look_drop].sum() / fps / 60:.1f} min)")
+        s_rate = s_rate + SENT_STYLE_W       # trims now cost more, so speech must too (#56, #74)
+        word_w[0] = WORD_W + WORD_STYLE_W
+    tpre = np.concatenate([[0.0], np.cumsum(tcost)])
+    anypre = np.concatenate([[0], np.cumsum(word_mask)])          # any speech, fillers included
+
+    def len_pen(k, after):
+        ref = len_ref.get(int(k))
+        if ref is None or not len(ref):
+            return 0.0
+        return -np.log(max(np.searchsorted(ref, after) / len(ref), LEN_FLOOR))
+
+    def isj(x, y):
+        """A jump cut that counts against the budget: same shot, not a speech edit (#74)."""
+        return int(0 <= x and y < n and y > x + 1 and shot[x] == shot[y] and anypre[y] == anypre[x + 1]
+                   and not credits[x])
     # Information = speech (charged per sentence below) + a little loudness for
     # music/effects. Motion is NOT information - it only makes joins visible.
     content = NONSPEECH_LOUD_W * loud_rank if len(sentences) else 0.5 * loud_rank + 0.5 * subj_rank
@@ -608,26 +665,39 @@ def cascade(F, fps, stop_fraction, words_path=None, srt_path=None):
             else:
                 wf = wdpre[o1 + 1] - wdpre[o0]
                 ff = flpre[o1 + 1] - flpre[o0]
-                cost += WORD_W * wf + filler_cost(o0, o1) + MIDSENT_W * ((o1 - o0 + 1) - wf - ff)
+                cost += word_w[0] * wf + filler_cost(o0, o1) + MIDSENT_W * ((o1 - o0 + 1) - wf - ff)
         return cost, whole
 
     def evaluate(a, b):
         L = b - a + 1
         p, q = int(prev_k[a]), int(next_k[b])
         vj, aj = join_cost(p, q)
+        T, dJ, over = 0.0, 0, 0
+        if sx:
+            for s in range(shot[a], shot[b] + 1):
+                if edge_only[s] and not look_drop[s]:
+                    o0, o1 = max(a, shot_start[s]), min(b, shot_end[s])
+                    r = o1 - o0 + 1
+                    T += tpre[o1 + 1] - tpre[o0] + r * LEN_W * len_pen(mkind[s], shot_kept[s] - r)
+            dJ = isj(p, q) - isj(p, a) - isj(b, q)
+            if dJ > 0 and (edge_only[shot[q]] or jc[0] + dJ > rate * (kept - L) / fps / 60):
+                vj += JC_PEN
+                over = 1
         w_seam = (wpre[b + 1] - wpre[a]) / L
         w_join = max(story[p] if p >= 0 else 1.0, story[q] if q < n else 1.0)
         sp, whole = speech_cost(a, b)
-        C = ((cpre[b + 1] - cpre[a]) + w_seam * (sp + BREATH_W * (bpre[b + 1] - bpre[a]))) / L
+        C = ((cpre[b + 1] - cpre[a]) + w_seam * (sp + BREATH_W * (bpre[b + 1] - bpre[a])) + T) / L
         x0, x1 = max(0, a - SW), min(n, b + 1 + SW)
         S = LAMBDA_SPREAD * w_seam * (removed[x0:x1].sum() + L) / (x1 - x0)
         Fp = FRAGMENT_PENALTY * fragments(a, b, p, q)
         # growing an existing hole moves a join instead of adding one
         grows = (a > 0 and removed[a - 1]) or (b + 1 < n and removed[b + 1])
         join = ((0.0 if grows else JOIN_BASE) + vj + aj + Fp) * w_join
-        return join / L ** JOIN_AMORT + C + S, (p, q, vj, aj, C, S, Fp, w_seam, whole)
+        return join / L ** JOIN_AMORT + C + S, (p, q, vj, aj, C, S, Fp, w_seam, whole, dJ, over)
 
     heap = []
+    jc = [0]          # jump cuts counting against the budget, right now
+    kept = n
 
     def push(a, b):
         if a < 0 or b >= n or removed[a:b + 1].any():
@@ -659,8 +729,8 @@ def cascade(F, fps, stop_fraction, words_path=None, srt_path=None):
     for w in SEAM_SIZES:
         for a in range(0, n - w + 1, max(1, w // 2)):
             push(a, a + w - 1)
-    for s, e in zip(shot_start, shot_end):
-        if e - s + 1 <= MAX_SHOT_SEAM_S * fps and e - s + 1 > SEAM_SIZES[-1]:
+    for k, (s, e) in enumerate(zip(shot_start, shot_end)):
+        if (e - s + 1 <= MAX_SHOT_SEAM_S * fps or look_drop[k]) and e - s + 1 > SEAM_SIZES[-1]:
             push(int(s), int(e))
     for k in range(len(sentences)):
         push_sentence(k)
@@ -682,12 +752,15 @@ def cascade(F, fps, stop_fraction, words_path=None, srt_path=None):
         if heap and new > heap[0][0] + 1e-12:
             heapq.heappush(heap, (new, a, b))
             continue
-        p, q, vj, aj, C, S, Fp, w_seam, whole = parts
+        p, q, vj, aj, C, S, Fp, w_seam, whole, dJ, over = parts
+        jc[0] += dJ
         shots_hit = range(shot[a], shot[b] + 1)
         drop = any(shot_kept[s] - (min(b, shot_end[s]) - max(a, shot_start[s]) + 1) == 0
                    for s in shots_hit)
-        if w_seam < 0.5:
+        if credits[a:b + 1].mean() > 0.5:
             kind = 5
+        elif look[a:b + 1].mean() > 0.5:
+            kind = 8
         elif whole:
             kind = 6
         elif flpre[b + 1] > flpre[a] and wdpre[b + 1] == wdpre[a]:
@@ -709,7 +782,7 @@ def cascade(F, fps, stop_fraction, words_path=None, srt_path=None):
             prev_k[q] = p
         kept -= b - a + 1
         order.append([a, b, kind, round(new, 4), round(vj, 3), round(aj, 3),
-                      round(C, 3), round(S, 3), round(Fp, 1), join_strategy(p, q, F, rank_d)])
+                      round(C, 3), round(S, 3), round(Fp, 1), join_strategy(p, q, F, rank_d), over])
         for w in SEAM_SIZES:
             if p >= 0:
                 push(p - w + 1, p)
@@ -722,7 +795,9 @@ def cascade(F, fps, stop_fraction, words_path=None, srt_path=None):
     print(f"[cascade] {len(order)} seams removed down to {kept/n:.0%} ({time.time()-t0:.0f}s)")
     return order, dict(subj_rank=subj_rank, loud_rank=loud_rank, credits=credits,
                        breath=breath, shot_start=shot_start, shot_end=shot_end,
-                       word_mask=word_mask & ~filler_mask, sentences=sentences, fillers=fillers, cues=cues)
+                       word_mask=word_mask & ~filler_mask, any_speech=word_mask, sentences=sentences,
+                       fillers=fillers, cues=cues, mkind=mkind, edge_only=edge_only, look_drop=look_drop,
+                       look=look, groups=groups, jc_rate=rate, native_jumps=native)
 
 
 def speed_for(target, slope=SPEED_SLOPE):
@@ -735,6 +810,68 @@ def carve_for(target, slope=SPEED_SLOPE):
     """What carving keeps so that carving plus speed-up land exactly on the target.
     It rises with the target (for slope <= 1), so the nested removal order still holds."""
     return min(1.0, target * speed_for(target, slope))
+
+
+def extra_mask(aux, snd, n):
+    """Frames that take the extra speed-up (decision #75): edge-only shots with no speech,
+    whose sound is effects, breathing or silence, or a music-only stretch (carved apart)."""
+    xm = np.zeros(n, bool)
+    if snd is None or "edge_only" not in aux:
+        return xm
+    import sound as sndm
+    mixed_music = (snd["h_smooth"] >= sndm.MUSIC_H) & ~snd["silent"] & ~snd["music_only"]
+    for k, (a, b) in enumerate(zip(aux["shot_start"], aux["shot_end"])):
+        if aux["edge_only"][k] and not aux["any_speech"][a:b + 1].any() and mixed_music[a:b + 1].mean() <= 0.1:
+            xm[a:b + 1] = True
+    return xm
+
+
+def prefix_arrays(order, xmask):
+    """Frames removed by the first k seams, all and extra-speed ones (k = 0..len(order))."""
+    rem = np.zeros(len(order) + 1, np.int64)
+    remx = np.zeros(len(order) + 1, np.int64)
+    if order:
+        L = np.array([b - a + 1 for a, b, *_ in order])
+        xc = np.concatenate([[0], np.cumsum(xmask)])
+        Lx = np.array([xc[b + 1] - xc[a] for a, b, *_ in order])
+        rem[1:], remx[1:] = np.cumsum(L), np.cumsum(Lx)
+    return rem, remx
+
+
+def plan_for(order, n, target, slope, xmask, pre=None):
+    """Carve + film-wide speed + extra speed on edge-only shots that land on the target length.
+    The extra speed follows the same curve as the film-wide one (decision #75). Returns
+    (keep, film speed, extra speed). Shorter targets always remove more (nesting holds)."""
+    sp = speed_for(target, slope)
+    xs = sp if xmask.any() else 1.0
+    rem, remx = pre if pre is not None else prefix_arrays(order, xmask)
+    nx = int(xmask.sum())
+    keptx = nx - remx
+    dur = ((n - rem) - keptx + keptx / xs) / sp          # output length in source frames, per prefix k
+    k = int(np.searchsorted(-dur, -target * n, "left"))  # first k with dur <= target
+    k = min(k, len(order))
+    removed = np.zeros(n, bool)
+    for a, b, *_ in order[:k]:
+        removed[a:b + 1] = True
+    return ~removed, sp, xs
+
+
+def style_xmask(src, F, fps, outdir):
+    """The extra-speed mask rebuilt without the cascade, for tools that read order.json."""
+    import shots as shm
+    import sound as sndm
+    n = len(F["d"])
+    subs = outdir / "subs_aligned.json"
+    wm, sents, _, _, _, filler_mask, _, _ = speech_layers(outdir / "words.json", n, fps, subs if subs.exists() else None)
+    credits = credits_mask(F["dark"], fps, (wm & ~filler_mask) if len(sents) else None)
+    shot = F["shot"]
+    ns = int(shot.max()) + 1
+    s0 = np.searchsorted(shot, np.arange(ns), "left")
+    s1 = np.searchsorted(shot, np.arange(ns), "right") - 1
+    S = shm.analyze_shots(F["g"], F["cut"].astype(bool), shot, fps, outdir / "shots.npz")
+    _, edge_only, _ = shm.shot_kinds(S, s0, s1, fps, ~credits)
+    snd = sndm.sound_types(src, n, fps, wm, F["rms_db"], outdir / "sound.npz")
+    return extra_mask(dict(edge_only=edge_only, shot_start=s0, shot_end=s1, any_speech=wm), snd, n)
 
 
 def keep_mask(order, n, fraction):
@@ -784,16 +921,43 @@ def picture_plan(keep, F, rank_d, h=DISSOLVE_H):
 
 
 # --- 3. REPORT ---------------------------------------------------------------
-def report(order, F, aux, fps, fractions, path, slope=SPEED_SLOPE):
+def style_line(keep, aux, fps, out_min, order, xmask, xs, shot, sp=1.0):
+    """Decisions #70-#75 at one length: jump cuts vs the learned budget, edge-only shots,
+    look-alike drops, extra speed."""
+    if "edge_only" not in aux:
+        return None
+    n = len(keep)
+    anyp = np.concatenate([[0], np.cumsum(aux["any_speech"])])
+    rs = runs(keep)
+    joins = [(e0 - 1, s1) for (s0, e0), (s1, e1) in zip(rs[:-1], rs[1:])]
+    cr = aux["credits"]
+    jcs = [(p, q) for p, q in joins if shot[p] == shot[q] and anyp[q] == anyp[p + 1] and not cr[p]]
+    speech_edits = sum(1 for p, q in joins if shot[p] == shot[q] and anyp[q] != anyp[p + 1])
+    s0, s1, eo = aux["shot_start"], aux["shot_end"], aux["edge_only"]
+    alive = np.array([keep[a:b + 1].any() for a, b in zip(s0, s1)])
+    inner = sum(1 for p, q in jcs if eo[shot[p]])
+    ld = aux["look_drop"]
+    removed_idx = set(np.flatnonzero(~keep))
+    over = sum(1 for o in order if o[0] in removed_idx and len(o) > 10 and o[10])
+    x_out = (keep & xmask).sum() / fps / sp / (xs if xs else 1) / 60
+    return (f"   style: jump cuts {len(jcs)} (budget {aux['jc_rate'] * out_min:.1f} = film's own "
+            f"{aux['jc_rate']:.3f}/min; {over} seams past it; {inner} inside edge-only shots), speech edits "
+            f"{speech_edits}; edge-only shots kept {int((alive & eo).sum())}/{int(eo.sum())}; look-alikes "
+            f"dropped {int((~alive & ld).sum())}/{int(ld.sum())}; extra {xs:.4f}x on {x_out:.1f} output min")
+
+
+def report(order, F, aux, fps, fractions, path, slope=SPEED_SLOPE, xmask=None):
     n = len(F["d"])
+    xmask = np.zeros(n, bool) if xmask is None else xmask
+    pre = prefix_arrays(order, xmask)
     shot_len = aux["shot_end"] - aux["shot_start"] + 1
     lines = [f"frames={n} fps={fps} duration={n/fps/60:.2f} min shots={len(shot_len)} "
              f"ASL={np.mean(shot_len)/fps:.2f}s credits={aux['credits'].sum()/fps:.1f}s", ""]
     g, shot = F["g"], F["shot"]
     rank_d = make_rank_d(F)
     for fr in fractions:
-        sp, kf = speed_for(fr, slope), carve_for(fr, slope)
-        keep = keep_mask(order, n, kf)
+        keep, sp, xs = plan_for(order, n, fr, slope, xmask, pre)
+        kf = keep.mean()
         removed_idx = set(np.flatnonzero(~keep))
         active = [o for o in order if o[0] in removed_idx]
         kinds = {k: 0 for k in KIND_NAMES}
@@ -830,7 +994,11 @@ def report(order, F, aux, fps, fractions, path, slope=SPEED_SLOPE):
             info_line += (f"\n   subtitle lines: {sum(k >= 0.95 for k, _ in cl)} intact / "
                           f"{sum(0.2 <= k < 0.95 for k, _ in cl)} partly cut / {len(lost)} lost"
                           + (f" ({' | '.join(lost[:6])})" if lost else ""))
-        out_min = keep.sum() / fps / sp / 60
+        kx = (keep & xmask).sum()
+        out_min = (keep.sum() - kx + kx / xs) / fps / sp / 60
+        sl = style_line(keep, aux, fps, out_min, order, xmask, xs, shot, sp)
+        if sl:
+            info_line += "\n" + sl
         lines += [f"== keep {fr:.0%}: {out_min:.2f} min = carve to {kf:.1%} at {sp:.4f}x speed, "
                   f"{len(active)} seams, {len(joins)} joins "
                   f"({len(joins)/out_min:.1f}/min); story kept {story_kept:.0%}, "
@@ -850,9 +1018,120 @@ def report(order, F, aux, fps, fractions, path, slope=SPEED_SLOPE):
 
 
 # --- 4. RENDER ---------------------------------------------------------------
-def render(src, info, order, F, fractions, outdir, stem, render_height=None, slope=SPEED_SLOPE, heal=None):
+def build_audio(audio, keep, fps, sr, xmask, xs, sp, music_runs):
+    """Carved audio before the tempo change, plus the tempo schedule for rubberband.
+
+    Outside music-only stretches, audio is cut with the picture (10 ms crossfades). Inside
+    one, the music is carved on its own at musical joins to the length its picture plays
+    for (decision #76). Extra-speed shots get tempo sp*xs, everything else sp."""
+    import sound as sndm
+    n = len(keep)
+    fsamp = lambda f: int(round(f * sr / fps))  # noqa: E731
+    sid = np.full(n, -1, np.int64)
+    for k, (s, e) in enumerate(music_runs):
+        sid[s:e] = k
+    items = []                                   # [kind, stretch, first frame, end frame, sub-runs]
+    for s, e in runs(keep):
+        f = s
+        while f < e:
+            k = sid[f]
+            g = f
+            while g < e and sid[g] == k:
+                g += 1
+            if k >= 0 and items and items[-1][0] == "m" and items[-1][1] == k:
+                items[-1][3] = g
+                items[-1][4].append((f, g))
+            else:
+                items.append(["m" if k >= 0 else "n", k, f, g, [(f, g)]])
+            f = g
+    pieces, tempo, pos = [], [], 0
+    stats = Counter()
+
+    def set_tempo(t, v):
+        if tempo and abs(tempo[-1][1] - v) < 1e-9:
+            return
+        if tempo and abs(tempo[-1][0] - t) < 1e-9:
+            tempo[-1] = (t, v)
+        else:
+            tempo.append((t, v))
+
+    def normal(u, v):
+        nonlocal pos
+        b = [u] + [u + 1 + i for i in np.flatnonzero(np.diff(xmask[u:v].astype(np.int8)))] + [v]
+        for s2, e2 in zip(b[:-1], b[1:]):
+            set_tempo((pos + fsamp(s2) - fsamp(u)) / sr, sp * (xs if xmask[s2] else 1.0))
+        seg = audio[fsamp(u):fsamp(v)]
+        pieces.append((seg, fsamp(u), fsamp(v)))
+        pos += len(seg)
+
+    for kind, k, f, g, subs in items:
+        if kind == "n":
+            normal(f, g)
+            continue
+        a0, a1 = fsamp(f), fsamp(g)
+        want = 0.0
+        for u, v in subs:
+            for fr_ in range(u, v):
+                want += (fsamp(fr_ + 1) - fsamp(fr_)) / (xs if xmask[fr_] else 1.0)
+        y, jumps = sndm.carve_music(audio[a0:a1], sr, (a1 - a0) - int(round(want)))
+        if y is None:                            # no clean musical joins: cut with the picture
+            stats["music stretches cut with the picture"] += 1
+            for u, v in subs:
+                normal(u, v)
+            continue
+        stats["music stretches carved apart"] += 1
+        stats["musical joins"] += len(jumps)
+        set_tempo(pos / sr, sp)
+        pieces.append((y, a0, a1))
+        pos += len(y)
+    out = np.concatenate([p for p, _, _ in pieces]).copy() if pieces else np.zeros((0, audio.shape[1]), np.float32)
+    h = int(sr * XFADE_MS / 2000)
+    ramp = np.linspace(0, np.pi / 2, 2 * h, dtype=np.float32)[:, None]
+    fo, fi = np.cos(ramp), np.sin(ramp)
+    j = 0
+    for (p0, _, end_prev), (_, start_next, _) in zip(pieces[:-1], pieces[1:]):
+        j += len(p0)
+        if end_prev == start_next:
+            continue                             # contiguous in the source: nothing to blend
+        if j - h < 0 or j + h > len(out) or end_prev + h > len(audio) or start_next - h < 0:
+            continue
+        out[j - h:j + h] = audio[end_prev - h:end_prev + h] * fo + audio[start_next - h:start_next + h] * fi
+    return out, tempo, stats
+
+
+def retime_video(src, dst, durs):
+    """Give each encoded frame its own duration (variable frame rate): every carved frame is
+    still shown, extra-speed shots just show theirs for less time (decision #75)."""
+    import av
+    from fractions import Fraction
+    tb = Fraction(1, 90000)
+    with av.open(str(src)) as inp, av.open(str(dst), "w") as out:
+        ist = inp.streams.video[0]
+        ost = out.add_stream_from_template(ist)
+        ost.time_base = tb
+        t, k = 0.0, 0
+        for pkt in inp.demux(ist):
+            if pkt.size == 0:
+                continue
+            d = durs[min(k, len(durs) - 1)]
+            pkt.pts = pkt.dts = int(round(t * 90000))
+            pkt.duration = int(round(d * 90000))
+            pkt.time_base = tb
+            pkt.stream = ost
+            out.mux(pkt)
+            t += d
+            k += 1
+    return k
+
+
+
+def render(src, info, order, F, fractions, outdir, stem, render_height=None, slope=SPEED_SLOPE, heal=None,
+           xmask=None, music=None):
     import heals as healmod
     n, rank_d = len(F["d"]), make_rank_d(F)
+    xmask = np.zeros(n, bool) if xmask is None else xmask
+    music_runs = runs(music) if music is not None else []
+    pre = prefix_arrays(order, xmask)
     heal_name = healmod.pick(heal)
     heal_fn = None if heal_name == "dissolve" else healmod.HEALS[heal_name]
     dh = DISSOLVE_H
@@ -869,40 +1148,36 @@ def render(src, info, order, F, fractions, outdir, stem, render_height=None, slo
     h = int(sr * XFADE_MS / 2000)
     ramp = np.linspace(0, np.pi / 2, 2 * h, dtype=np.float32)[:, None]
     fo, fi = np.cos(ramp), np.sin(ramp)
-    plans, encs = {}, {}
+    plans, encs, post = {}, {}, {}
     for fr in fractions:
-        sp = speed_for(fr, slope)
-        keep = keep_mask(order, n, carve_for(fr, slope))
+        keep, sp, xs = plan_for(order, n, fr, slope, xmask, pre)
         plans[fr], counts = picture_plan(keep, F, rank_d)
-        pieces, joins, pos = [], [], 0
-        for s, e in runs(keep):
-            seg = audio[fsamp(s):fsamp(e)]
-            pieces.append(seg)
-            pos += len(seg)
-            joins.append((pos, fsamp(s), fsamp(e)))
-        out = np.concatenate(pieces).copy()
-        for (j, _, end_prev), (_, start_next, _) in zip(joins[:-1], joins[1:]):
-            if j - h < 0 or j + h > len(out) or end_prev + h > len(audio) or start_next - h < 0:
-                continue
-            out[j - h:j + h] = audio[end_prev - h:end_prev + h] * fo + audio[start_next - h:start_next + h] * fi
-        wav = outdir / f"{stem}_{int(fr*100):03d}.wav"
+        out, tempo, astats = build_audio(audio, keep, fps, sr, xmask, xs, sp, music_runs)
+        tag = f"{stem}_{int(fr*100):03d}"
+        wav = outdir / f"{tag}.wav"
         with wave.open(str(wav), "wb") as wf:
             wf.setnchannels(2)
             wf.setsampwidth(2)
             wf.setframerate(sr)
             wf.writeframes((np.clip(out, -1, 1) * 32767).astype(np.int16).tobytes())
-        mp4 = outdir / f"{stem}_{int(fr*100):03d}.mp4"
-        # Speed-up (decision #66): every carved frame is shown, just at fps*speed, and the
-        # audio is time-stretched with its pitch kept (rubberband: exact length, ~2 ms offset).
-        af = ["-af", f"rubberband=tempo={sp:.6f}:pitch=1"] if sp != 1 else []
+        tfile = outdir / f"{tag}.tempo.txt"
+        tfile.write_text("".join(f"{t:.6f} rubberband tempo {v:.6f};\n" for t, v in tempo), encoding="utf-8")
+        # Every carved frame is shown: at fps*speed, and extra-speed shots at fps*speed*xs
+        # (decisions #66, #75). Video is encoded at a constant rate without B-frames, then each
+        # frame gets its own duration; audio gets the matching tempo schedule (pitch kept).
+        durs = [1.0 / (fps * sp * (xs if xmask[it[0] if isinstance(it, tuple) else it] else 1.0))
+                for it in plans[fr]]
+        vtmp = outdir / f"{tag}.v.mp4"
         encs[fr] = subprocess.Popen(
             ["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "yuv420p",
-             "-s", f"{W}x{H}", "-r", repr(fps * sp), "-i", "-", "-i", str(wav), *af,
-             "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "veryfast",
-             "-crf", "20", "-c:a", "aac", "-b:a", "192k", "-shortest", str(mp4)],
+             "-s", f"{W}x{H}", "-r", repr(fps * sp), "-i", "-", "-c:v", "libx264", "-preset", "veryfast",
+             "-crf", "20", "-bf", "0", str(vtmp)],
             stdin=subprocess.PIPE)
-        print(f"[render] target {fr:.0%}: carve to {keep.mean():.1%} at {sp:.4f}x; joins "
-              + ", ".join(f"{k}={v}" for k, v in counts.items()))
+        post[fr] = (wav, tfile, vtmp, durs, sp, len(out) / sr, keep)
+        print(f"[render] target {fr:.0%}: carve to {keep.mean():.1%} at {sp:.4f}x"
+              + (f", extra {xs:.4f}x on {(keep & xmask).sum() / fps / sp / xs / 60:.1f} min" if (keep & xmask).any() else "")
+              + "; joins " + ", ".join(f"{k}={v}" for k, v in counts.items())
+              + ("; " + ", ".join(f"{k} {v}" for k, v in astats.items()) if astats else ""))
     need = Counter()
     for plan in plans.values():
         for it in plan:
@@ -977,14 +1252,29 @@ def render(src, info, order, F, fractions, outdir, stem, render_height=None, slo
         enc.wait()
     dec.wait()
     for fr in fractions:
-        (outdir / f"{stem}_{int(fr*100):03d}.wav").unlink()
+        wav, tfile, vtmp, durs, sp, a_s, keep = post[fr]
+        vfr = vtmp.with_suffix(".vfr.mp4")
+        frames = retime_video(vtmp, vfr, durs)
+        mp4 = outdir / f"{stem}_{int(fr*100):03d}.mp4"
+        sh(["ffmpeg", "-v", "error", "-y", "-i", str(vfr), "-i", str(wav),
+            "-af", f"asendcmd=f={tfile.as_posix()},rubberband=tempo={sp:.6f}:pitch=1",
+            "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", str(mp4)])
+        print(f"[render] {mp4.name}: {frames} frames, picture {sum(durs):.2f}s")
+        try:                                      # subtitles on the render's clock (subtitles.py)
+            import subtitles as subm
+            path, k, kind = subm.write_for_render(outdir, stem, fr, plans[fr], durs, keep, fps)
+            print(f"[render] {path.name}: {k} cues from {'subtitles' if kind == 'subs' else 'speech recognition'}")
+        except FileNotFoundError:
+            pass
+        for x in (wav, tfile, vtmp, vfr):
+            x.unlink()
     if heal_n:
         print(f"[render] {heal_name}: {heal_n} joins in {heal_s:.0f}s ({heal_s / heal_n:.2f}s per join)")
     print(f"[render] done ({time.time()-t0:.0f}s)")
 
 
 # --- 5. VIEWER ---------------------------------------------------------------
-def viewer(order, F, aux, info, fractions, outdir, stem, slope=SPEED_SLOPE):
+def viewer(order, F, aux, info, fractions, outdir, stem, slope=SPEED_SLOPE, xmask=None, music=None):
     proxy = outdir / "proxy.mp4"
     if not proxy.exists():
         sh(["ffmpeg", "-v", "error", "-y", "-i", str(info["src"]), "-vf", "scale=640:-2",
@@ -1001,6 +1291,8 @@ def viewer(order, F, aux, info, fractions, outdir, stem, slope=SPEED_SLOPE):
         "breath": [[int(s), int(e)] for s, e in runs(aux["breath"])],
         "renders": [f"{stem}_{int(fr*100):03d}.mp4" for fr in fractions],
         "fractions": fractions, "speed_slope": slope,
+        "xranges": [[int(s), int(e)] for s, e in runs(xmask)] if xmask is not None else [],
+        "music": [[int(s), int(e)] for s, e in runs(music)] if music is not None else [],
     }
     tpl = (Path(__file__).parent / "viewer_template.html").read_text(encoding="utf-8")
     (outdir / "viewer.html").write_text(tpl.replace("/*DATA*/null", json.dumps(data, separators=(",", ":"))),
@@ -1020,6 +1312,8 @@ def main():
                     help="film-wide speed = 1 + (1 - target) * slope (default 0.125: 1.1x at 20%%; 0 = carve only)")
     ap.add_argument("--heal", help="heal for same-shot joins (heals.py); default: rifemorph, falling back to "
                                    "flowdissolve without PyTorch/GPU weights, then the plain dissolve")
+    ap.add_argument("--classic", action="store_true",
+                    help="the model before decisions #70-#76: no shot kinds, budget, look-alikes or extra speed")
     args = ap.parse_args()
     src = Path(args.src)
     stem = src.stem
@@ -1034,12 +1328,27 @@ def main():
             Path(json.loads(aligned.read_text(encoding="utf-8")).get("source_srt", "")).resolve() == Path(subs).resolve():
         print(f"[main] using subtitles anchored to the audio: {aligned}")
         subs = aligned
-    order, aux = cascade(F, info["fps"], args.stop, outdir / "words.json", subs)
+    shot_an = snd = None
+    if not args.classic:
+        import shots as shm
+        import sound as sndm
+        shot_an = shm.analyze_shots(F["g"], F["cut"].astype(bool), F["shot"], info["fps"], outdir / "shots.npz")
+    order, aux = cascade(F, info["fps"], args.stop, outdir / "words.json", subs, shot_an)
+    if not args.classic:
+        snd = sndm.sound_types(src, len(F["d"]), info["fps"], aux["any_speech"], F["rms_db"], outdir / "sound.npz")
+        mr = runs(snd["music_only"])
+        print(f"[sound] music-only stretches: {len(mr)}, {sum(e - s for s, e in mr) / info['fps'] / 60:.1f} min")
+    music = snd["music_only"] if snd is not None else None
+    xmask = extra_mask(aux, snd, len(F["d"]))
+    np.savez(outdir / "plan.npz", xmask=xmask, music=music if music is not None else np.zeros(len(F["d"]), bool))
+    if xmask.any():
+        print(f"[speed] extra speed-up eligible: {xmask.sum() / info['fps'] / 60:.1f} min of edge-only shots")
     (outdir / "order.json").write_text(json.dumps(order), encoding="utf-8")
-    report(order, F, aux, info["fps"], args.fractions, outdir / "report.txt", args.speed_slope)
-    viewer(order, F, aux, info, args.fractions, outdir, stem, args.speed_slope)
+    report(order, F, aux, info["fps"], args.fractions, outdir / "report.txt", args.speed_slope, xmask)
+    viewer(order, F, aux, info, args.fractions, outdir, stem, args.speed_slope, xmask, music)
     if not args.no_render:
-        render(src, info, order, F, args.fractions, outdir, stem, args.render_height, args.speed_slope, args.heal)
+        render(src, info, order, F, args.fractions, outdir, stem, args.render_height, args.speed_slope, args.heal,
+               xmask, music)
 
 
 if __name__ == "__main__":

@@ -123,7 +123,23 @@ const Retime = (() => {
   // Second device (decision #66): one film-wide speed-up, and the carve that completes the target.
   const speedFor = (target, slope) => 1 + (1 - target) * slope;
   const carveFor = (target, slope) => Math.min(1, target * speedFor(target, slope));
-  return { removalRank, prefixFor, carve, speedFor, carveFor };
+  // Extra speed on edge-only shots (decision #75): same curve, stacked on the film-wide speed.
+  // The seam prefix is the first one whose output length reaches the target (nesting holds).
+  const prefixArrays = (order, xm) => {
+    const xc = new Int32Array(xm.length + 1);
+    for (let f = 0; f < xm.length; f++) xc[f + 1] = xc[f] + xm[f];
+    const rem = new Float64Array(order.length + 1), remx = new Float64Array(order.length + 1);
+    order.forEach(([a, b], i) => { rem[i + 1] = rem[i] + b - a + 1; remx[i + 1] = remx[i] + xc[b + 1] - xc[a]; });
+    return { rem, remx, nx: xc[xm.length] };
+  };
+  const planFor = (target, slope, n, pre, hasX) => {
+    const sp = speedFor(target, slope), xs = hasX ? sp : 1;
+    const dur = k => ((n - pre.rem[k]) - (pre.nx - pre.remx[k]) + (pre.nx - pre.remx[k]) / xs) / sp;
+    let lo = 0, hi = pre.rem.length - 1;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (dur(m) <= target * n) hi = m; else lo = m + 1; }
+    return { k: lo, sp, xs, dur: dur(lo) };
+  };
+  return { removalRank, prefixFor, carve, speedFor, carveFor, prefixArrays, planFor };
 })();
 
 /* ---- page shell ---- */
@@ -134,15 +150,20 @@ const v = $("v"), lenEl = $("len");
 const fmt = s => { s = Math.max(0, s); const m = Math.floor(s / 60); return `${m}:${(s % 60).toFixed(1).padStart(4, "0")}`; };
 const heat = getComputedStyle(document.documentElement).getPropertyValue("--heat").trim();
 const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
-let S = null, prev = null, speed = 1;
+let S = null, prev = null, speed = 1, xs = 1, outFrames = n;
 const slope = D.speed_slope || 0;
+const xm = new Uint8Array(n);
+for (const [s, e] of D.xranges || []) xm.fill(1, s, e);
+const xpre = Retime.prefixArrays(order, xm), hasX = (D.xranges || []).length > 0;
+const rateAt = f => speed * (xm[f] ? xs : 1);
 
 function update() {
   const target = +lenEl.value / 100;
-  speed = Retime.speedFor(target, slope);
-  const k = Retime.prefixFor(order, n, Retime.carveFor(target, slope));
-  prev = S; S = Retime.carve(rank, k, fps, D.cuts, order, D.kinds);
-  v.preservesPitch = true; v.defaultPlaybackRate = speed; v.playbackRate = speed;  // browsers keep pitch
+  const pl = Retime.planFor(target, slope, n, xpre, hasX);
+  speed = pl.sp; xs = pl.xs; outFrames = pl.dur;
+  prev = S; S = Retime.carve(rank, pl.k, fps, D.cuts, order, D.kinds);
+  const f = Math.min(n - 1, Math.floor(v.currentTime * fps));
+  v.preservesPitch = true; v.defaultPlaybackRate = speed; v.playbackRate = rateAt(f);  // browsers keep pitch
   $("lenOut").textContent = `${(+lenEl.value).toFixed(1)}%`;
   renderState(); drawMap(); drawZoom(); renderNear();
 }
@@ -152,8 +173,9 @@ function renderState() {
   const diff = (a, b) => prev && a !== b ? " changed" : "";
   const rows = [
     ["Original", fmt(n / fps)],
-    ["Result", `<span class="big${diff(prev && prev.kept, S.kept)}">${fmt(S.kept / fps / speed)}</span> <span class="muted">(${(100 * S.kept / n / speed).toFixed(1)}%)</span>`],
-    ["Carved to", `${fmt(S.kept / fps)} <span class="muted">(${(100 * S.kept / n).toFixed(1)}%), then played at</span> ${speed.toFixed(4)}× <span class="muted">(pitch kept)</span>`],
+    ["Result", `<span class="big${diff(prev && prev.kept, S.kept)}">${fmt(outFrames / fps)}</span> <span class="muted">(${(100 * outFrames / n).toFixed(1)}%)</span>`],
+    ["Carved to", `${fmt(S.kept / fps)} <span class="muted">(${(100 * S.kept / n).toFixed(1)}%), then played at</span> ${speed.toFixed(4)}× <span class="muted">(pitch kept)</span>` +
+      (hasX && xs > 1 ? `, edge-only shots without speech ${(speed * xs).toFixed(4)}×` : "")],
     ["Seams removed", `<span class="${diff(prev && prev.seams, S.seams)}">${S.seams}</span> of ${order.length} in the cascade`],
     ["Joins", `${S.joins} <span class="muted">(${S.joinsPerMin.toFixed(1)} per carved minute)</span>`],
     ["By kind", D.kinds.map(x => `${x} ${S.kindCount[x]}`).join(" · ")],
@@ -220,6 +242,8 @@ function onFrame(now, meta) {
   if ($("skip").checked && S && !v.paused) {
     const f = Math.floor(meta.mediaTime * fps + 1e-3);
     if (f < n && S.removed[f]) { const nk = S.nextKept[f]; if (nk >= n) v.pause(); else v.currentTime = (nk + 0.05) / fps; }
+    const r = rateAt(Math.min(n - 1, f));
+    if (Math.abs(v.playbackRate - r) > 1e-6) v.playbackRate = r;
   }
   if (now - lastUi > 120) { lastUi = now; renderState(); drawZoom(); drawMap(); renderNear(); }
   v.requestVideoFrameCallback(onFrame);
@@ -269,7 +293,8 @@ function showTab(i) {
 }
 W.forEach((w, i) => { const b = document.createElement("button"); b.textContent = w.t; b.onclick = () => showTab(i); $("tabs").appendChild(b); });
 
-$("renders").innerHTML = D.renders.map((r, i) => `<a href="${r}">${r}</a> <span class="muted">target ${Math.round(D.fractions[i] * 100)}%${slope ? ` = carve to ${(100 * Retime.carveFor(D.fractions[i], slope)).toFixed(1)}% at ${Retime.speedFor(D.fractions[i], slope).toFixed(4)}×` : ""}</span>`).join("<br>") +
+$("renders").innerHTML = D.renders.map((r, i) => { const pl = Retime.planFor(D.fractions[i], slope, n, xpre, hasX), c = n - xpre.rem[pl.k];
+  return `<a href="${r}">${r}</a> <span class="muted">target ${Math.round(D.fractions[i] * 100)}%${slope ? ` = carve to ${(100 * c / n).toFixed(1)}% at ${pl.sp.toFixed(4)}×${hasX ? `, edge-only shots without speech ${(pl.sp * pl.xs).toFixed(4)}×` : ""}` : ""}</span>`; }).join("<br>") +
   `<p class="muted" style="margin:8px 0 0">Open these in a normal player to judge carving properly. They include 10 ms crossfades and no seek stutter.</p>`;
 
 update(); showTab(0);

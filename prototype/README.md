@@ -470,6 +470,77 @@ So `render()` now hands every dissolve window to `heals.pick()`.
 
 `flowinterp6` stays in the bake-off as a pause-only candidate. `rife6` is dropped from it.
 
+## Iteration 11: the film's own cutting style (decisions #70–#77, after watching *2001*)
+
+**User:** "the original cut is not big on jump cuts. but our very compressed version is. for example dave going to fix the antena was compressed to a lot of jump cuts. kubrik also has a lot of pan/dolly/zoom long shots where a single action happens - like a ship flying or landing. these kind of shots can be trimmed at the edges instead of have cuts inside the motion. we might also allow a special speedup of another 1.1 on these." The grilling that followed is #70–#76 in the decision log.
+
+**New modules:**
+- **`shots.py`** handles the shot-level analysis, cached in `renders/<stem>/shots.npz`; the motion pass is cached separately in `shots_motion.npz`.
+  - **Global motion:** DIS optical flow at 160 px, fitted with pan/tilt, zoom and roll. The residual is subject motion (amount, area, centroid, motion at the border). This is new: the old phase correlation saw only translation, so it missed zooms.
+  - **Shot kinds:** a camera move is a shot where the camera moves in at least half its frames; a moving subject, where a localized subject moves in half its frames; a static take, where nothing moves in half its frames. **Edge-only** shots are camera moves, moving subjects, and static takes at least as long as the film's median shot.
+  - **Trim signals:** movement carried (relative to its shot), new picture content (distance to the nearest frame of the same shot at least 1 s away, ranked), and event moments (change of the motion pattern over ±0.5 s inside the shot, ranked and held for ±1 s).
+  - **Native jump cuts:** cuts whose two sides differ no more than the median of two frames 1 s apart inside a shot. *2001*: **0**, so its budget is 0. *Tears of Steel*: 3 (0.29 per minute).
+  - **Look-alikes:** adjacent silent shots whose descriptors (mean layout and histogram) differ no more than the 75th percentile of a shot's two halves. The most informative one is kept, by event, newest view and most complete action.
+- **`sound.py`:**
+  - **Harmonic share:** a median-filter harmonic/percussive split on the GPU (torch STFT).
+  - **Music-only:** harmonic share ≥ 0.62 over 1 s, audible, no speech nearby, lasting at least 4 s. Measured on *2001*: the Blue Danube scores 0.86, the apes' ambience 0.51, the EVA breathing 0.59, and the Stargate's Ligeti 0.64.
+  - **`carve_music()`:** jumps between onsets whose ±0.5 s context sounds alike, chosen greedily, with 80 ms equal-power crossfades. The total removed is exact to the sample. When there is too little to remove, or no clean jumps, the stretch is cut with the picture instead.
+- **`subtitles.py`** (#77) writes `<stem>_0XX.srt` next to each render. Real anchored subtitles keep their lines. Machine captions or none means cues are rebuilt from the Whisper words that are still kept.
+
+**Cascade changes:**
+- **Jump cuts:** the cascade tracks how many there are (same shot, no speech in the hole, not credits). One that goes past the film's rate, or falls inside an edge-only shot, gets `JC_PEN = 3` added to its join cost.
+- **Edge-only frames** pay `LEN_W·−ln(CDF of same-kind shot lengths at the length left)`, plus the three trim signals.
+- **Look-alikes:** their frames carry story weight 0.25, and the whole shot is a seam at any length.
+- **Speech:** when testing showed that costlier trims had made short lines cheap again, speech costs went up with the model (`SENT_STYLE_W`, `WORD_STYLE_W`).
+  - *Tears of Steel* at 30% had lost "There she is.", "Now." and "Be tender to her." Now only "Now." goes.
+  - *2001* had four 1–2-frame word clips at 30%. Now there are none.
+- `--classic` gives the old model.
+
+**Render changes:**
+- **Video:** encoded at a constant rate without B-frames, then remuxed with PyAV so each frame gets its own duration (variable frame rate). The extra-speed shots show every frame for less time.
+- **Audio:** built per piece. Music-only stretches are carved apart; everything else is cut with the picture. Then ffmpeg `asendcmd` switches the `rubberband` tempo at extra-speed shots (pitch kept).
+- **Length** is solved with both speeds (`plan_for`). It still lands on the target, and the order stays nested.
+
+***2001* at each length** (style line of `report.txt`; before = the renders of 2026-11-12):
+
+| | 90% | 75% | 60% | 30% |
+|---|---|---|---|---|
+| Jump cuts, silent (before: all same-shot joins) | 0 (58) | 3 (104) | 19 (268) | 65 (345) |
+| Joins | 93 (60) | 424 (554) | 492 (730) | 520 (815) |
+| Look-alike shots dropped (of 22) | 0 | 18 | 20 | 22 |
+| Output minutes at extra speed | 65.8 | 56.4 | 41.6 | 11.8 |
+| Sentences removed whole / cut into | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+
+- **The EVA stretch** (69–79 min): 0 jump cuts at 75% and 60%, and 1 at 30%. All 33 of its joins are at shot cuts.
+- **Where the 65 jump cuts at 30% fall:**
+  - 13 in the black Intermission screen;
+  - 9 in the pauses of the 2-minute lip-reading take (84:27);
+  - 5 around Floyd's recorded message (117:00);
+  - the rest are 1–3 per long take.
+
+**Per part of the film**, share kept at 90/75/60/30% (before in brackets), and joins at 30%:
+
+| Part | Kept | Joins at 30% |
+|---|---|---|
+| Dawn of Man and Blue Danube | 100/81/60/19 (100/79/59/21) | 82 (141) |
+| Station, Moon, TMA-1 | 100/91/81/50 (100/90/78/49) | 91 (151) |
+| Discovery, up to the lip-reading | 100/90/82/54 (100/90/78/53) | 98 (170) |
+| Intermission and Entr'acte | 100/83/42/12 (100/79/60/35) | 15 (27) |
+| Pods, Poole, pod bay, HAL off | 100/79/60/28 (100/78/57/25) | 115 (154) |
+| Jupiter and the Stargate | 100/97/89/31 (100/94/82/27) | 50 (87) |
+| The room and the Star Child | 100/84/47/20 (100/78/56/19) | 46 (63) |
+
+**Checks:**
+- **Lengths** land on target; picture and sound end within 30 ms of each other (*2001*) or 60 ms (*Tears of Steel*).
+- **Lip-sync** (envelope cross-correlation at speech, mapped through the variable timeline): *2001* is within 10 ms at 90% and 20 ms at 30%, with no drift over 2 hours. *Tears of Steel* is within 10 / 20 ms.
+- **Subtitles** against the words Whisper hears in the renders: the median cue starts −23 to +46 ms from the first word, and 68–85% of cues are within 250 ms.
+- **Classic renders:** their `.srt` clock matches their length exactly.
+
+**Open:**
+- **Music-only covers 64 minutes of *2001*.** Steady ship hums count as music, so they get carved at "musical" joins too. That is harmless for a hum, but unverified by ear.
+- **Many music stretches still fall back to cutting with the picture**: 48–61 per length.
+- **Jump cuts in the pauses of long dialogue takes** count against the budget. They are now the main source past the budget.
+
 ## Open (needs eyes and ears, not metrics)
 
 - **Audio joins** are the expected first failure. Signal-only scoring has no beat or speech awareness: a 125 ms hiccup in music, or a clipped word, is invisible to these metrics. Listen to `_090`, `_075` and `_060`.
