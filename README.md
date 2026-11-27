@@ -75,7 +75,7 @@ The full iteration log is `prototype/README.md` on branch `prototype/carve-only`
 
 ## Try the prototype
 
-The prototype lives on branch `prototype/carve-only` of a private repo, so you need access. You also need Python 3.13 and an ffmpeg build with the `rubberband` filter, which the default speed-up uses. The Whisper `small.en` model (about 486 MB) downloads once into `cache/`.
+The prototype lives on branch `prototype/carve-only`. You need Python 3.13 and an ffmpeg build with the `rubberband` filter, which the default speed-up uses. The Whisper `small.en` model (about 486 MB) downloads once into `cache/`.
 
 The commands use Windows paths. On macOS or Linux, use `python3` instead of `py`, and `.venv/bin/python` instead of `.venv/Scripts/python`.
 
@@ -152,4 +152,4 @@ All are legal to keep and share except *2001*, which stays private.
 
 ## Usage and rights
 
-Scene Carving is for retiming **your own copy for personal use**. Shareable demos use public-domain or CC-BY films only. See [docs/VISION.md](docs/VISION.md#ethics-and-law). The license is still to be decided.
+Scene Carving is for retiming **your own copy for personal use**. Shareable demos use public-domain or CC-BY films only. See [docs/VISION.md](docs/VISION.md#ethics-and-law). The code and docs are under the [MIT License](LICENSE). That covers this repo only: the films you retime, and the models and tools it downloads (Whisper, RIFE weights, ffmpeg), keep their own terms.
